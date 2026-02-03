@@ -1,12 +1,8 @@
-/* main.js */
+/* main.js - Final Robust Version */
 import { SCAN_CODES } from './utils.js';
 
 let device;
 let activeKeyIndex = null;
-
-// Hardware Protocol Info (Defaults)
-let reportType = 'output'; 
-let hwReportId = 0;
 
 // Local Metadata Storage
 let keyMetadata = JSON.parse(localStorage.getItem('keypad_metadata')) || {};
@@ -66,7 +62,6 @@ async function runDiagnostics() {
 
     if (!hasWriteCabability) {
         logToConsole("⚠️ WARNING: READ-ONLY INTERFACE DETECTED", "err");
-        logToConsole("👉 Please click 'Connect' again and select the OTHER device in the list!", "err");
         alert("Wrong Interface Selected!\n\nPlease click Connect again and pick the OTHER 'Mini Keyboard' in the list.");
     }
 }
@@ -74,11 +69,7 @@ async function runDiagnostics() {
 // 2. Connect Device (With Strict Filter)
 export async function connectDevice() {
     try {
-        // FILTER UPDATE: Specifically ask for Usage Page 0xFF00.
-        // This is critical for Windows to show the correct interface.
-        const filters = [
-            { vendorId: 0x1189, usagePage: 0xFF00 } 
-        ];
+        const filters = [{ vendorId: 0x1189, usagePage: 0xFF00 }];
 
         let devices;
         try {
@@ -96,41 +87,8 @@ export async function connectDevice() {
         logToConsole(`Device Opened: ${device.productName}`, 'info');
         runDiagnostics();
 
-        // --- PROTOCOL DETECTION ---
-        // Find the collection that supports writing (Output or Feature)
-        const writableCollection = device.collections.find(c => 
-            (c.outputReports && c.outputReports.length > 0) || 
-            (c.featureReports && c.featureReports.length > 0) ||
-            c.usagePage === 0xFF00 
-        );
-
-        if (writableCollection) {
-            // Priority: Output Report (since we confirmed ID 3 works)
-            if (writableCollection.outputReports?.length > 0) {
-                reportType = 'output';
-                hwReportId = writableCollection.outputReports[0].reportId;
-            } else if (writableCollection.featureReports?.length > 0) {
-                reportType = 'feature';
-                hwReportId = writableCollection.featureReports[0].reportId;
-            } else {
-                reportType = 'output'; 
-                hwReportId = 0; 
-            }
-            
-            logToConsole(`✅ Detected Protocol: ${reportType.toUpperCase()} | ID: ${hwReportId}`, 'tx');
-            
-            // --- SYNC TO UI ---
-            // Auto-fill the Debug Panel settings so "Save" works automatically
-            const idInput = document.getElementById('force-report-id');
-            const typeInput = document.getElementById('force-report-type');
-            
-            if(idInput) idInput.value = hwReportId;
-            if(typeInput) typeInput.value = reportType;
-            
-        } else {
-            logToConsole(`⚠️ No descriptor found. Defaulting to Output ID: 0`, 'err');
-        }
-
+        // Default to Output 3 / Feature 0 based on your logs
+        // We will "Shotgun" send to all likely ports, so strict detection is less critical now.
         document.getElementById('status').innerText = "Status: Connected";
         document.getElementById('status').style.color = "#00d2ff";
         document.getElementById('connectBtn').style.display = 'none';
@@ -146,65 +104,82 @@ export async function connectDevice() {
 export function handleKeySelection(idx) {
     activeKeyIndex = idx; 
     
-    // UI Highlight
     document.querySelectorAll('.key').forEach(k => k.classList.remove('active'));
     document.getElementById(`v-${idx}`).classList.add('active');
     document.getElementById('editor-container').classList.remove('hidden');
     document.getElementById('editingLabel').innerText = `Editing Key ${idx + 1}`;
     
-    // Logic: Default to F13+idx if not set
     const defaultByte = 0x68 + idx; // F13 + idx
     const savedByte = keyMetadata[idx] || defaultByte;
-    
     fSelector.value = savedByte;
 }
 
-// 4. SAVE (Robust Method)
+// 4. SAVE (The "Shotgun" Method with Checksum)
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
     
     const selectedByte = parseInt(fSelector.value);
     
-    // Read from Debug Panel (which is now Auto-Configured)
-    const useType = document.getElementById('force-report-type').value;
-    const useId = parseInt(document.getElementById('force-report-id').value);
-    // CRITICAL: Force length to 8 bytes to prevent hanging
-    const useLen = parseInt(document.getElementById('force-length').value) || 8;
-
-    // Construct Packet
-    const data = new Uint8Array(useLen).fill(0);
+    // 1. Construct Packet with 8 Bytes (Standard)
+    const data = new Uint8Array(8).fill(0);
     
-    // Standard Packet for VID 0x1189
     data[0] = 0x03;               // Command: Write
     data[1] = activeKeyIndex + 1; // Key Index
     data[2] = 0x01;               // Type: Keyboard
     data[3] = selectedByte;       // Key Code
     data[4] = 0x00;               // Modifiers
+    data[5] = 0x00;               // Reserved
+    data[6] = 0x00;               // Reserved
     
-    logToConsole(`Sending [${data.slice(0,5).join(',')}] to ${useType.toUpperCase()} ID:${useId}`, 'info');
+    // 2. CALCULATE CHECKSUM (Critical for some versions)
+    // Sum of first 7 bytes
+    let checksum = 0;
+    for (let i = 0; i < 7; i++) checksum += data[i];
+    data[7] = checksum & 0xFF; // Last byte is the sum
+    
+    logToConsole(`Preparing Packet: [${data.join(', ')}]`, 'info');
+
+    // 3. THE SHOTGUN APPROACH: Send to every likely endpoint
+    // One of these will work and the device will ignore the others.
+    
+    let successCount = 0;
 
     try {
-        const sendPromise = (useType === 'feature') 
-            ? device.sendFeatureReport(useId, data)
-            : device.sendReport(useId, data);
+        // ATTEMPT A: Output Report ID 3 (What logs said)
+        try {
+            await device.sendReport(3, data);
+            logToConsole(`✅ Sent to Output ID 3`, 'tx');
+            successCount++;
+        } catch (e) { logToConsole(`Could not send Output 3: ${e.message}`, 'info'); }
 
-        // Timeout to prevent browser freeze
-        await Promise.race([
-            sendPromise,
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2000))
-        ]);
-        
-        logToConsole(`✅ Packet Sent Successfully`, 'tx');
+        // ATTEMPT B: Feature Report ID 0 (Standard for CH57x)
+        // Now that you are on the Vendor Interface, this might be the real one.
+        try {
+            await device.sendFeatureReport(0, data);
+            logToConsole(`✅ Sent to Feature ID 0`, 'tx');
+            successCount++;
+        } catch (e) { logToConsole(`Could not send Feature 0: ${e.message}`, 'info'); }
 
-        // Update Metadata
-        keyMetadata[activeKeyIndex] = selectedByte;
-        localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
-        
-        refreshSummary();
-        showSuccess();
+        // ATTEMPT C: Output Report ID 0 (Common Fallback)
+        try {
+            await device.sendReport(0, data);
+            logToConsole(`✅ Sent to Output ID 0`, 'tx');
+            successCount++;
+        } catch (e) { /* Ignore noise */ }
+
+        if (successCount > 0) {
+            logToConsole(`✨ Command Sent! Test your key now.`, 'success');
+            // Update Metadata
+            keyMetadata[activeKeyIndex] = selectedByte;
+            localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
+            refreshSummary();
+            showSuccess();
+        } else {
+            throw new Error("All send attempts failed.");
+        }
         
     } catch (e) {
-        logToConsole(`❌ Error: ${e.message}`, 'err');
+        logToConsole(`❌ GLOBAL ERROR: ${e.message}`, 'err');
     }
 }
 
@@ -240,7 +215,6 @@ function refreshSummary() {
 // INPUT TESTER & EVENTS
 // ----------------------------------------
 const testZone = document.getElementById('key-test-zone');
-
 if (testZone) {
     testZone.addEventListener('keydown', (e) => {
         e.preventDefault(); 
