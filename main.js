@@ -25,17 +25,14 @@ const fSelector = document.getElementById('fkey-selector');
 Object.entries(SCAN_CODES).forEach(([keyName, byte]) => {
     // Only show F13-F24 in the dropdown list
     if (keyName.startsWith('F') && parseInt(keyName.substring(1)) >= 13) {
-        fSelector.add(new Option(keyName, byte)); // Value is the Byte directly
+        fSelector.add(new Option(keyName, byte));
     }
 });
 
 // EVENT: Dropdown Changed manually
 fSelector.addEventListener('change', (e) => {
-    // If user picks from dropdown, set that as the key
     currentPayload.keyByte = parseInt(e.target.value);
-    currentPayload.mod = 0; // Reset modifiers for pure F-key
-    
-    // Update UI to reflect manual choice
+    currentPayload.mod = 0; 
     document.getElementById('active-shortcut-display').innerText = e.target.options[e.target.selectedIndex].text;
 });
 
@@ -81,7 +78,7 @@ export async function connectDevice() {
 }
 
 /**
- * 3. Handle Key Selection (Clicking a visual key)
+ * 3. Handle Key Selection
  */
 export function handleKeySelection(idx) {
     activeKeyIndex = idx;
@@ -97,7 +94,6 @@ export function handleKeySelection(idx) {
     document.getElementById('bind-desc').value = data.desc;
     document.getElementById('active-shortcut-display').innerText = data.shortcutText;
     
-    // Reset payload to 0 until they record/select something new
     currentPayload = { mod: 0, keyByte: 0 };
 }
 
@@ -110,7 +106,7 @@ const recorderDisplay = document.getElementById('modal-recorder-display');
 export function openRecordModal() {
     modal.classList.remove('hidden');
     tempMod = 0;
-    tempKeyByte = 0; // Reset temp
+    tempKeyByte = 0;
     tempText = "Listening...";
     recorderDisplay.innerText = tempText;
 }
@@ -119,7 +115,6 @@ window.addEventListener('keydown', (e) => {
     if (modal.classList.contains('hidden')) return;
     e.preventDefault();
 
-    // 1. Calculate Modifiers
     tempMod = (e.ctrlKey ? 0x01 : 0) | (e.shiftKey ? 0x02 : 0) | (e.altKey ? 0x04 : 0);
     
     const mods = [];
@@ -127,13 +122,10 @@ window.addEventListener('keydown', (e) => {
     if (e.shiftKey) mods.push("Shift");
     if (e.altKey) mods.push("Alt");
     
-    // 2. Identify the Main Key (if it's not a modifier)
     if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
-        // Look up the mapping in utils.js
         const code = SCAN_CODES[e.code];
-        
         if (code) {
-            tempKeyByte = code; // Success: Found the HEX code for this key
+            tempKeyByte = code;
             const keyLabel = e.key.length === 1 ? e.key.toUpperCase() : e.key;
             tempText = (mods.length > 0 ? mods.join('+') + '+' : '') + keyLabel;
             
@@ -144,16 +136,13 @@ window.addEventListener('keydown', (e) => {
             recorderDisplay.style.color = "orange";
         }
     } else {
-        // Just modifiers displayed so far
         recorderDisplay.innerText = mods.join('+') + "...";
     }
 });
 
 document.getElementById('modal-save').onclick = () => {
-    // Commit temp recording to the actual payload
     currentPayload.mod = tempMod;
     currentPayload.keyByte = tempKeyByte;
-    
     document.getElementById('active-shortcut-display').innerText = tempText;
     modal.classList.add('hidden');
 };
@@ -166,13 +155,11 @@ document.getElementById('modal-reset').onclick = () => {
 document.getElementById('modal-cancel').onclick = () => modal.classList.add('hidden');
 
 /**
- * 5. Save To Hardware
+ * 5. Save To Hardware (FIXED BYTE MAPPING)
  */
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
     
-    // Validation: Did we actually select/record a key?
-    // If the byte is 0, check if the dropdown has a fallback
     if (currentPayload.keyByte === 0) {
         const dropdownVal = parseInt(document.getElementById('fkey-selector').value);
         if (dropdownVal) {
@@ -183,16 +170,21 @@ export async function saveActiveBinding() {
     }
 
     const report = new Uint8Array(hwReportLen).fill(0);
-    report[0] = 0x03;             // Command
-    report[1] = activeKeyIndex;   // Key Index
-    report[2] = 0x11;             // Type: HID
-    report[3] = 0x01;             // Mod 1
-    report[4] = 0x01;             // Mod 2
-    report[5] = currentPayload.mod;     // The Modifiers (Ctrl/Shift)
-    report[6] = currentPayload.keyByte; // The Actual Key (C, V, or F13)
+    
+    // --- PAYLOAD FIX ---
+    // Previous code used Mode 0x11 and offsets 5/6, which was ignoring modifiers.
+    // We switch to Mode 0x01 (Standard Keyboard) which uses offsets 3 and 4.
+    
+    report[0] = 0x03;             // Command ID (Write)
+    report[1] = activeKeyIndex;   // Key Index (0-6)
+    report[2] = 0x01;             // Mode: 0x01 = Keyboard/Shortcut
+    report[3] = currentPayload.mod;     // Byte 3: Modifier Mask (Ctrl/Shift)
+    report[4] = currentPayload.keyByte; // Byte 4: Key Code (HID)
+    
+    // Bytes 5+ are zero padding
 
     try {
-        console.log(`Writing: KeyIdx=${activeKeyIndex} Mod=${report[5]} Code=${report[6]}`);
+        console.log(`Writing to ID ${hwReportId}: Mode=${report[2]} Mod=${report[3]} Code=${report[4]}`);
         await device.sendReport(hwReportId, report);
         
         // Save Metadata
