@@ -1,4 +1,4 @@
-/* main.js - Hybrid Fix (Command 0xA1 + Correct Byte Order) */
+/* main.js - Final Fix (Strict Connect + Hybrid Protocol) */
 import { SCAN_CODES } from './utils.js';
 
 let device;
@@ -28,7 +28,7 @@ function logToConsole(msg, type = 'info') {
 }
 
 // ----------------------------------------
-// DIAGNOSTICS (Auto-Detects Length)
+// DIAGNOSTICS
 // ----------------------------------------
 async function runDiagnostics() {
     if (!device) return logToConsole("❌ No device connected.", "err");
@@ -73,17 +73,27 @@ async function runDiagnostics() {
 
     if (!hasWrite) {
         logToConsole("⚠️ READ-ONLY INTERFACE. Re-Connect & select the other device.", "err");
-        alert("Wrong Device! Please connect to the other 'Mini Keyboard' in the list.");
+        alert("Wrong Device! You connected to the 'Keyboard' interface. Please disconnect and try again.");
     }
 }
 
 // ----------------------------------------
-// CONNECT
+// CONNECT (RESTORED STRICT FILTER)
 // ----------------------------------------
 export async function connectDevice() {
     try {
-        const filters = [{ vendorId: 0x1189 }];
-        const devices = await navigator.hid.requestDevice({ filters });
+        // 1. Try Strict Filter (Vendor Page 0xFF00 only)
+        // This ensures we don't accidentally grab the "Keyboard" interface
+        const strictFilters = [{ vendorId: 0x1189, usagePage: 0xFF00 }];
+        let devices;
+        
+        try {
+            devices = await navigator.hid.requestDevice({ filters: strictFilters });
+        } catch (err) {
+            console.warn("Strict filter failed, trying loose filter...");
+            // Fallback: Show all 0x1189 devices if the strict filter is too specific for this browser/OS
+            devices = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x1189 }] });
+        }
         
         device = devices[0];
         if (!device) return;
@@ -99,8 +109,7 @@ export async function connectDevice() {
             if (writable.outputReports?.length > 0) defId = writable.outputReports[0].reportId;
             else if (writable.featureReports?.length > 0) defId = writable.featureReports[0].reportId;
             
-            // Default to ID 3 if 0 was detected
-            if (defId === 0) defId = 3;
+            if (defId === 0) defId = 3; // Default to ID 3
             
             document.getElementById('force-report-id').value = defId;
         }
@@ -143,7 +152,6 @@ export async function saveActiveBinding() {
     data[6] = 0x00;               // Byte 6: Padding
 
     // Checksum (Sum of bytes 0-6)
-    // Placed at Byte 7, which is standard for these 8-byte logic blocks
     let sum = 0;
     for(let i = 0; i < 7; i++) {
         sum += data[i];
