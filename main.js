@@ -2,16 +2,22 @@ import { SCAN_CODES, MODIFIERS } from './utils.js';
 
 let device;
 let activeKeyIndex = null;
-let isRecording = false;
-let recordedMod = 0;
-let recordedKey = 0;
+let tempMod = 0;
+let tempKey = 0;
+let tempText = "";
 
-// Local database to store Names, Descriptions, and Shortcut Text
+// Metadata storage for the summary table
 let keyMetadata = JSON.parse(localStorage.getItem('sayo_metadata')) || {};
 
+// Initialize the F-Key Dropdown
+const fSelector = document.getElementById('fkey-selector');
+Object.keys(SCAN_CODES).forEach(f => {
+    if(f.startsWith('F')) fSelector.add(new Option(f, f));
+});
+
 /**
- * Hardware Connection Logic
- * Filters for the Vendor Interface to bypass NotAllowedError.
+ * 1. Hardware Connection
+ * Specifically filters for the Vendor interface to bypass the NotAllowedError.
  */
 export async function connectDevice() {
     try {
@@ -24,135 +30,157 @@ export async function connectDevice() {
         );
 
         if (!device) {
-            alert("Keypad found, but configuration interface is blocked. Re-plug and select 'HID-compliant device' (Interface 2).");
+            alert("Security Error: Please select the entry that is NOT the keyboard (Interface 2).");
             return;
         }
 
         await device.open();
-        document.getElementById('status').innerText = "Status: Connected to " + device.productName;
+        document.getElementById('status').innerText = "Status: Connected";
         document.getElementById('connectBtn').style.display = 'none';
+        refreshSummary();
     } catch (e) {
         alert("Connection failed. Ensure you are using HTTPS and selected the correct interface.");
     }
 }
 
 /**
- * CRUD: Handle Key Selection
- * Opens the sidebar and loads existing metadata.
+ * 2. Key Selection
+ * Loads existing metadata and automatically syncs the F-key dropdown.
  */
 export function handleKeySelection(idx) {
     activeKeyIndex = idx;
-    isRecording = false;
-    
     document.querySelectorAll('.key').forEach(k => k.classList.remove('active'));
     document.getElementById(`v-${idx}`).classList.add('active');
     document.getElementById('editor-container').classList.remove('hidden');
-    document.getElementById('binding-form').classList.add('hidden');
     
-    const label = idx === 6 ? "Knob" : `Key ${idx + 1}`;
-    document.getElementById('editingLabel').innerText = label;
-
-    // Load existing metadata if available
-    const data = keyMetadata[idx] || { name: "", desc: "", shortcutText: "Click 'New' to record" };
+    // Load existing metadata
+    const data = keyMetadata[idx] || { name: "", desc: "", shortcutText: "No shortcut recorded", fKey: `F${13 + idx}` };
     document.getElementById('bind-name').value = data.name;
     document.getElementById('bind-desc').value = data.desc;
-    document.getElementById('shortcut-recorder').innerText = data.shortcutText;
-}
-
-/**
- * CRUD: New Binding (Record Mode)
- */
-export function startNewBinding() {
-    isRecording = true;
-    recordedMod = 0;
-    recordedKey = 0;
+    document.getElementById('active-shortcut-display').innerText = data.shortcutText;
     
-    document.getElementById('binding-form').classList.remove('hidden');
-    const recorder = document.getElementById('shortcut-recorder');
-    recorder.innerText = "Listening... Press keys now";
+    // Sync the F-Key dropdown to the saved value or the default offset
+    document.getElementById('fkey-selector').value = data.fKey;
 }
 
 /**
- * Keyboard Listener for Recording
- * Maps physical presses to internal F13-F24 range (0x68-0x73)
+ * 3. Modal Recording Logic
  */
+const modal = document.getElementById('record-modal');
+const recorderDisplay = document.getElementById('modal-recorder-display');
+
+export function openRecordModal() {
+    modal.classList.remove('hidden');
+    tempMod = 0;
+    tempText = "Listening...";
+    recorderDisplay.innerText = tempText;
+}
+
 window.addEventListener('keydown', (e) => {
-    if (!isRecording) return;
+    if (modal.classList.contains('hidden')) return;
     e.preventDefault();
 
-    // Calculate HID Modifiers
-    recordedMod = (e.ctrlKey ? 0x01 : 0) | (e.shiftKey ? 0x02 : 0) | (e.altKey ? 0x04 : 0);
+    // Capture Modifiers
+    tempMod = (e.ctrlKey ? 0x01 : 0) | (e.shiftKey ? 0x02 : 0) | (e.altKey ? 0x04 : 0);
     
-    // Hardcode to F13-F24 based on the physical button index
-    recordedKey = 0x68 + activeKeyIndex; 
-
-    const modText = (e.ctrlKey ? 'Ctrl+' : '') + (e.shiftKey ? 'Shift+' : '') + (e.altKey ? 'Alt+' : '');
-    document.getElementById('shortcut-recorder').innerText = `${modText}${e.key}`;
+    // Display human-readable text
+    const mods = [];
+    if (e.ctrlKey) mods.push("Ctrl");
+    if (e.shiftKey) mods.push("Shift");
+    if (e.altKey) mods.push("Alt");
+    
+    tempText = (mods.length > 0 ? mods.join('+') + '+' : '') + e.key.toUpperCase();
+    recorderDisplay.innerText = tempText;
 });
 
+document.getElementById('modal-save').onclick = () => {
+    document.getElementById('active-shortcut-display').innerText = tempText;
+    modal.classList.add('hidden');
+};
+
+document.getElementById('modal-reset').onclick = () => {
+    tempMod = 0;
+    tempText = "Listening...";
+    recorderDisplay.innerText = tempText;
+};
+
+document.getElementById('modal-cancel').onclick = () => modal.classList.add('hidden');
+
 /**
- * CRUD: Save / Update
- * Sends data to hardware and saves metadata to LocalStorage.
+ * 4. Save to Hardware with Report ID Fallback
  */
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
 
+    const fKeyName = document.getElementById('fkey-selector').value;
+    const hardwareKeyByte = SCAN_CODES[fKeyName];
     const name = document.getElementById('bind-name').value;
     const desc = document.getElementById('bind-desc').value;
-    const shortcutText = document.getElementById('shortcut-recorder').innerText;
+    const shortcutText = document.getElementById('active-shortcut-display').innerText;
 
-    // Sayo 64-byte protocol
     const report = new Uint8Array(64);
     report[0] = 0x03; 
     report[1] = activeKeyIndex; 
     report[2] = 0x11; 
     report[3] = 0x01; 
     report[4] = 0x01; 
-    report[5] = recordedMod;
-    report[6] = recordedKey;
+    report[5] = tempMod;
+    report[6] = hardwareKeyByte;
 
     try {
-        // Attempt write on Report ID 0
         await device.sendReport(0, report);
-        finalizeSave(name, desc, shortcutText);
+        finalize(name, desc, shortcutText, fKeyName);
     } catch (e) {
-        // Fallback: Force Report ID 1 (Fixes NotAllowedError on some firmware)
         try {
+            // Force Fallback to Report ID 1
             await device.sendReport(1, report.slice(1));
-            finalizeSave(name, desc, shortcutText);
+            finalize(name, desc, shortcutText, fKeyName);
         } catch (err) {
-            alert("Error: NotAllowedError. Ensure you selected 'HID-compliant device' and NOT 'Keyboard'.");
+            alert("Write Failed: Ensure you selected the non-keyboard interface (Interface 2).");
         }
     }
 }
 
-function finalizeSave(name, desc, shortcutText) {
-    // Save metadata locally for the Summary Table
-    keyMetadata[activeKeyIndex] = { name, desc, shortcutText, mod: recordedMod, key: recordedKey };
+function finalize(name, desc, shortcutText, fKeyName) {
+    keyMetadata[activeKeyIndex] = { name, desc, shortcutText, fKey: fKeyName };
     localStorage.setItem('sayo_metadata', JSON.stringify(keyMetadata));
-    
-    isRecording = false;
-    alert(`Success! Hardware programmed to F${13 + activeKeyIndex}`);
+    alert("Hardware programmed successfully!");
+    refreshSummary();
 }
 
 /**
- * CRUD: Delete
+ * 5. Summary Table Refresh
  */
-export async function deleteBinding() {
-    if (!confirm("Clear this key?")) return;
+function refreshSummary() {
+    const tbody = document.getElementById('summary-body');
+    tbody.innerHTML = '';
     
-    recordedMod = 0;
-    recordedKey = 0;
+    const entries = Object.entries(keyMetadata).sort((a, b) => a[0] - b[0]);
     
-    await saveActiveBinding();
-    delete keyMetadata[activeKeyIndex];
-    localStorage.setItem('sayo_metadata', JSON.stringify(keyMetadata));
-    location.reload(); // Refresh to update table
+    if (entries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#666;">No keys programmed yet.</td></tr>';
+        return;
+    }
+
+    entries.forEach(([idx, data]) => {
+        const row = `<tr>
+            <td>Key ${parseInt(idx) + 1}</td>
+            <td>${data.fKey}</td>
+            <td>${data.name}</td>
+            <td>${data.shortcutText}</td>
+            <td>${data.desc}</td>
+        </tr>`;
+        tbody.innerHTML += row;
+    });
 }
 
-// Global Bindings for index.html
+// Global Bindings
 window.connectDevice = connectDevice;
 window.handleKeySelection = handleKeySelection;
-window.startNewBinding = startNewBinding;
+window.startNewBinding = openRecordModal;
 window.saveActiveBinding = saveActiveBinding;
-window.deleteBinding = deleteBinding;
+
+document.getElementById('connectBtn').onclick = connectDevice;
+document.getElementById('btn-record-popup').onclick = openRecordModal;
+document.getElementById('save-binding-btn').onclick = saveActiveBinding;
+window.onload = refreshSummary;

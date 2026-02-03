@@ -6,13 +6,28 @@
     <title>Smart Keypad Web Center</title>
     <link rel="stylesheet" href="./style.css">
     <style>
-        /* Table Styling */
+        /* Summary Table Styling */
         .summary-section { margin-top: 40px; width: 100%; max-width: 800px; }
         table { width: 100%; border-collapse: collapse; background: #1e1e1e; border-radius: 8px; overflow: hidden; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #333; }
         th { background: #252525; color: var(--primary); font-size: 0.9rem; }
-        tr:last-child td { border-bottom: none; }
-        .empty-msg { color: #666; font-style: italic; padding: 20px; text-align: center; }
+        
+        /* Modal Styling */
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 1000;
+        }
+        .modal-content {
+            background: #1e1e1e; padding: 40px; border-radius: 15px; border: 2px solid var(--primary);
+            text-align: center; width: 450px; box-shadow: 0 0 30px rgba(0,210,255,0.3);
+        }
+        #modal-recorder-display {
+            background: #000; color: var(--primary); padding: 30px; margin: 20px 0;
+            font-family: 'Consolas', monospace; font-size: 2rem; border-radius: 8px; border: 1px dashed #444;
+        }
+        .modal-actions { display: flex; gap: 15px; justify-content: center; margin-top: 20px; }
+        .btn-danger { background: #ff4444 !important; color: white !important; }
+        .btn-secondary { background: #444 !important; color: white !important; }
     </style>
 </head>
 <body>
@@ -47,28 +62,31 @@
             </div>
 
             <div id="editor-container" class="hidden">
-                <div id="action-menu">
-                    <h3 id="editingLabel">Key 1</h3>
-                    <p style="font-size: 0.8rem; color: #888;">Hardware: <span id="hw-target">F13</span></p>
-                    <button id="btn-new">➕ New Recording</button>
-                    <button id="btn-delete" class="danger">🗑️ Clear Key</button>
+                <h3 id="editingLabel">Editing Key</h3>
+                
+                <div class="control-group">
+                    <label>Hardware Trigger (Select F-Key):</label>
+                    <select id="fkey-selector">
+                        </select>
                 </div>
 
-                <div id="binding-form" class="hidden">
-                    <div class="control-group">
-                        <label>Binding Name:</label>
-                        <input type="text" id="bind-name" placeholder="e.g. Photoshop Copy">
-                    </div>
-                    <div class="control-group">
-                        <label>Shortcut Action (Record):</label>
-                        <div id="shortcut-recorder">Click 'New' to record</div>
-                    </div>
-                    <div class="control-group">
-                        <label>Notes:</label>
-                        <textarea id="bind-desc" rows="3" placeholder="Identify use case..."></textarea>
-                    </div>
-                    <button id="save-binding-btn">💾 Save to Hardware</button>
+                <div class="control-group">
+                    <label>Shortcut Command:</label>
+                    <button id="btn-record-popup" style="background: #333; border: 1px solid var(--primary); color: var(--primary);">⏺ Record Key Combo</button>
+                    <div id="active-shortcut-display" style="margin-top: 10px; font-weight: bold; color: var(--primary);">No shortcut recorded</div>
                 </div>
+
+                <div class="control-group">
+                    <label>Binding Name:</label>
+                    <input type="text" id="bind-name" placeholder="e.g. Photoshop Copy">
+                </div>
+
+                <div class="control-group">
+                    <label>Description:</label>
+                    <textarea id="bind-desc" rows="2" placeholder="What does this do?"></textarea>
+                </div>
+
+                <button id="save-binding-btn">💾 Save Configuration</button>
             </div>
         </div>
 
@@ -77,70 +95,33 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Hardware Key</th>
+                        <th>Pad Key</th>
+                        <th>Hardware ID</th>
                         <th>Name</th>
-                        <th>Shortcut</th>
+                        <th>Combo</th>
                         <th>Notes</th>
                     </tr>
                 </thead>
                 <tbody id="summary-body">
-                    </tbody>
+                    <tr><td colspan="5" style="text-align:center; color:#666;">No keys programmed yet.</td></tr>
+                </tbody>
             </table>
-        </div>
-
-        <div class="test-bench">
-            <h3>Live Key Test</h3>
-            <div id="testDisplay">Connect device and press keys to test...</div>
         </div>
     </div>
 
-    <script type="module">
-        import { 
-            connectDevice, 
-            saveActiveBinding, 
-            startNewBinding, 
-            handleKeySelection 
-        } from './main.js';
+    <div id="record-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Recording Shortcut</h2>
+            <p>Perform the key combination on your keyboard now.</p>
+            <div id="modal-recorder-display">Listening...</div>
+            <div class="modal-actions">
+                <button id="modal-save">Confirm & Save</button>
+                <button id="modal-reset" class="btn-danger">Reset</button>
+                <button id="modal-cancel" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
 
-        document.getElementById('connectBtn').onclick = connectDevice;
-        document.getElementById('btn-new').onclick = startNewBinding;
-        document.getElementById('save-binding-btn').onclick = async () => {
-            await saveActiveBinding();
-            refreshSummary(); // Refresh table after save
-        };
-
-        document.querySelectorAll('.key').forEach(el => {
-            el.addEventListener('click', () => {
-                const idx = parseInt(el.dataset.idx);
-                handleKeySelection(idx);
-                document.getElementById('hw-target').innerText = `F${13 + idx}`;
-            });
-        });
-
-        // Function to refresh the summary table
-        function refreshSummary() {
-            const tbody = document.getElementById('summary-body');
-            const data = JSON.parse(localStorage.getItem('sayo_metadata')) || {};
-            tbody.innerHTML = '';
-
-            if (Object.keys(data).length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="empty-msg">No keys programmed yet.</td></tr>';
-                return;
-            }
-
-            Object.entries(data).sort().forEach(([idx, meta]) => {
-                const row = `<tr>
-                    <td>K${parseInt(idx) + 1} (F${13 + parseInt(idx)})</td>
-                    <td>${meta.name || '---'}</td>
-                    <td>${meta.shortcutText || 'Unknown'}</td>
-                    <td>${meta.desc || '---'}</td>
-                </tr>`;
-                tbody.innerHTML += row;
-            });
-        }
-
-        // Load summary on startup
-        window.onload = refreshSummary;
-    </script>
+    <script type="module" src="./main.js"></script>
 </body>
 </html>
