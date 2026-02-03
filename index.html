@@ -38,23 +38,7 @@
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #333; }
         th { background: #252525; color: var(--primary); font-size: 0.9rem; }
         
-        /* Modal Styling */
-        .modal {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 1000;
-        }
         .hidden { display: none !important; }
-        .modal-content {
-            background: #1e1e1e; padding: 40px; border-radius: 15px; border: 2px solid var(--primary);
-            text-align: center; width: 450px; box-shadow: 0 0 30px rgba(0,210,255,0.3);
-        }
-        #modal-recorder-display {
-            background: #000; color: var(--primary); padding: 30px; margin: 20px 0;
-            font-family: 'Consolas', monospace; font-size: 2rem; border-radius: 8px; border: 1px dashed #444;
-        }
-        .modal-actions { display: flex; gap: 15px; justify-content: center; margin-top: 20px; }
-        .btn-danger { background: #ff4444 !important; color: white !important; }
-        .btn-secondary { background: #444 !important; color: white !important; }
     </style>
 </head>
 <body>
@@ -87,35 +71,22 @@
                 <h3 id="editingLabel">Editing Key</h3>
                 
                 <div class="control-group">
-                    <label>1. Hardware Trigger (Internal F-Key):</label>
+                    <label>1. Assign Function Key:</label>
                     <select id="fkey-selector"></select>
                 </div>
 
                 <div class="control-group">
-                    <label>2. Shortcut Command:</label>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <button id="btn-record-popup" style="background: #333; border: 1px solid var(--primary); color: var(--primary); flex: 1;">
-                            ⏺ Record Combo
-                        </button>
-                        <div id="active-shortcut-display" style="flex: 1; font-weight: bold; color: var(--primary); padding: 10px; background: #000; border-radius: 4px; text-align: center; border: 1px solid #444;">
-                            None
-                        </div>
-                    </div>
-                </div>
-
-                <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
-
-                <div class="control-group">
-                    <label>3. Binding Name:</label>
-                    <input type="text" id="bind-name" placeholder="e.g. Copy">
+                    <label>2. Binding Name (Optional):</label>
+                    <input type="text" id="bind-name" placeholder="e.g. Mic Mute">
                 </div>
 
                 <div class="control-group">
-                    <label>4. Description:</label>
+                    <label>3. Description (Optional):</label>
                     <textarea id="bind-desc" rows="2" placeholder="Description..."></textarea>
                 </div>
 
                 <button id="save-binding-btn">💾 Save Configuration</button>
+                <button id="clear-binding-btn" style="background: #444; margin-top: 10px;">❌ Clear Key</button>
             </div>
         </div>
 
@@ -133,7 +104,7 @@
                     <tr>
                         <th>Pad Key</th>
                         <th>Name</th>
-                        <th>Command</th>
+                        <th>Output</th>
                         <th>Notes</th>
                     </tr>
                 </thead>
@@ -141,18 +112,6 @@
                     <tr><td colspan="4" style="text-align:center; color:#666;">No keys programmed yet.</td></tr>
                 </tbody>
             </table>
-        </div>
-    </div>
-
-    <div id="record-modal" class="modal hidden">
-        <div class="modal-content">
-            <h2>Recording Shortcut</h2>
-            <div id="modal-recorder-display">Listening...</div>
-            <div class="modal-actions">
-                <button id="modal-save">✅ Use This</button>
-                <button id="modal-reset" class="btn-danger">↺ Reset</button>
-                <button id="modal-cancel" class="btn-secondary">Cancel</button>
-            </div>
         </div>
     </div>
 

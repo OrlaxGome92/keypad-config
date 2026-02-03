@@ -1,14 +1,8 @@
 /* main.js */
-import { SCAN_CODES, MODIFIERS } from './utils.js';
+import { SCAN_CODES } from './utils.js';
 
 let device;
 let activeKeyIndex = null;
-let currentPayload = { mod: 0, keyByte: 0 };
-
-// Variables for Recorder
-let tempMod = 0;
-let tempKeyByte = 0;
-let tempText = "";
 
 // Device Hardware Info
 let hwReportId = 0;
@@ -18,17 +12,14 @@ let keyMetadata = JSON.parse(localStorage.getItem('sayo_metadata')) || {};
 
 // 1. Initialize Dropdown (F13-F24)
 const fSelector = document.getElementById('fkey-selector');
+// Clear existing options first if any
+fSelector.innerHTML = ''; 
+
+// Populate F13 to F24
 Object.entries(SCAN_CODES).forEach(([keyName, byte]) => {
     if (keyName.startsWith('F') && parseInt(keyName.substring(1)) >= 13) {
         fSelector.add(new Option(keyName, byte));
     }
-});
-
-// EVENT: Dropdown Changed manually
-fSelector.addEventListener('change', (e) => {
-    currentPayload.keyByte = parseInt(e.target.value);
-    currentPayload.mod = 0; 
-    document.getElementById('active-shortcut-display').innerText = e.target.options[e.target.selectedIndex].text;
 });
 
 // 2. Connect Device & Auto-Detect
@@ -66,7 +57,7 @@ export async function connectDevice() {
 
 // 3. Handle Key Selection
 export function handleKeySelection(idx) {
-    activeKeyIndex = idx; // idx is 0-based from the HTML (0 for K1, 1 for K2...)
+    activeKeyIndex = idx; // idx is 0-based
     
     // UI Highlight
     document.querySelectorAll('.key').forEach(k => k.classList.remove('active'));
@@ -74,132 +65,63 @@ export function handleKeySelection(idx) {
     document.getElementById('editor-container').classList.remove('hidden');
     document.getElementById('editingLabel').innerText = `Editing Key ${idx + 1}`;
     
-    // Calculate Defaults
-    const defaultFKeyByte = 0x68 + idx; // F13 + idx
-    const defaultFKeyName = `F${13 + idx}`;
-
+    // Calculate Defaults: 
+    // If no data saved, map K1->F13, K2->F14, etc.
+    const defaultFKeyByte = 0x68 + idx; // F13 (0x68) + index
+    
     // Load Data
     const data = keyMetadata[idx] || { 
         name: "", 
         desc: "", 
-        shortcutText: defaultFKeyName, 
         savedByte: defaultFKeyByte 
     };
     
     // Fill Fields
     document.getElementById('bind-name').value = data.name;
     document.getElementById('bind-desc').value = data.desc;
-    document.getElementById('active-shortcut-display').innerText = data.shortcutText;
 
-    // Restore Dropdown State
-    if (data.savedByte && SCAN_CODES[data.shortcutText] === data.savedByte) {
-         fSelector.value = data.savedByte;
-    } else {
-         // If current binding is a complex shortcut (Ctrl+C), reset dropdown to default F-key
-         fSelector.value = defaultFKeyByte;
-    }
-
-    // Reset current payload
-    currentPayload = { mod: 0, keyByte: 0 };
+    // Set Dropdown Value
+    // If savedByte exists and is in our list, select it. Otherwise default.
+    fSelector.value = data.savedByte;
 }
 
-// 4. Recorder
-const modal = document.getElementById('record-modal');
-const recorderDisplay = document.getElementById('modal-recorder-display');
-
-export function openRecordModal() {
-    modal.classList.remove('hidden');
-    tempMod = 0;
-    tempKeyByte = 0;
-    tempText = "Listening...";
-    recorderDisplay.innerText = tempText;
-}
-
-window.addEventListener('keydown', (e) => {
-    if (!modal.classList.contains('hidden')) {
-        e.preventDefault();
-        
-        // Modifiers Bitmask (1=Ctrl, 2=Shift, 4=Alt, 8=Win)
-        tempMod = (e.ctrlKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
-        
-        const mods = [];
-        if (e.ctrlKey) mods.push("Ctrl");
-        if (e.shiftKey) mods.push("Shift");
-        if (e.altKey) mods.push("Alt");
-        if (e.metaKey) mods.push("Win");
-        
-        if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
-            const code = SCAN_CODES[e.code];
-            if (code) {
-                tempKeyByte = code;
-                const keyLabel = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-                tempText = (mods.length > 0 ? mods.join('+') + '+' : '') + keyLabel;
-                recorderDisplay.innerText = tempText;
-                recorderDisplay.style.color = "#00d2ff";
-            }
-        } else {
-            recorderDisplay.innerText = mods.join('+') + "...";
-        }
-    }
-});
-
-document.getElementById('modal-save').onclick = () => {
-    currentPayload.mod = tempMod;
-    currentPayload.keyByte = tempKeyByte;
-    document.getElementById('active-shortcut-display').innerText = tempText;
-    modal.classList.add('hidden');
-};
-document.getElementById('modal-reset').onclick = () => { tempMod = 0; tempKeyByte = 0; recorderDisplay.innerText = "Listening..."; };
-document.getElementById('modal-cancel').onclick = () => modal.classList.add('hidden');
-
-// 5. Test Zone
+// 4. Test Zone
 const testInput = document.getElementById('test-input');
 const testOutput = document.getElementById('test-output');
 if(testInput) {
     testInput.addEventListener('keydown', (e) => {
         e.preventDefault(); 
-        const mods = [];
-        if (e.ctrlKey) mods.push("Ctrl");
-        if (e.shiftKey) mods.push("Shift");
-        if (e.altKey) mods.push("Alt");
-        let keyPart = "";
-        if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) keyPart = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-        testInput.value = (mods.length > 0 ? mods.join(" + ") + " + " : "") + keyPart;
-        testOutput.innerText = `Debug: Code=${e.code} | Ctrl=${e.ctrlKey}`;
+        testInput.value = e.code; // Will show "F13", "F14" etc.
+        testOutput.innerText = `Received Code: ${e.code}`;
         testInput.style.borderColor = "#00ff00";
         setTimeout(() => testInput.style.borderColor = "#555", 200);
     });
 }
 
-// 6. SAVE (CORRECTED PROTOCOL)
+// 5. SAVE
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
     
-    // Determine what to write: Recording OR Dropdown
-    let finalKey = currentPayload.keyByte;
-    let finalMod = currentPayload.mod;
+    // Get Value directly from Dropdown
+    const selectedByte = parseInt(fSelector.value);
+    const selectedText = fSelector.options[fSelector.selectedIndex].text;
     
-    // If no new recording, use the dropdown value
-    if (finalKey === 0) {
-        finalKey = parseInt(document.getElementById('fkey-selector').value);
-        finalMod = 0; // F-Keys usually have no modifiers
-    }
-    
-    if (!finalKey) return alert("Error: Invalid Key Selection.");
+    if (!selectedByte) return alert("Error: Invalid Selection.");
 
     const report = new Uint8Array(hwReportLen).fill(0);
     
-    // --- PROTOCOL FIX ---
-    // Mode 0x01 (Keyboard)
-    // Byte 1: Key Index (1-BASED! activeKeyIndex + 1)
-    // Byte 3: Key Code (e.g., C)
-    // Byte 4: Modifier (e.g., Ctrl)
+    // Protocol:
+    // Byte 0: Command 0x03
+    // Byte 1: Key Index (1-based)
+    // Byte 2: Mode 0x01 (Keyboard)
+    // Byte 3: Key Code (The F-Key byte)
+    // Byte 4: Modifier (0x00 for none)
     
-    report[0] = 0x03;               // Command
-    report[1] = activeKeyIndex + 1; // Index (1-based: K1=1, K2=2)
-    report[2] = 0x01;               // Mode 1: Keyboard
-    report[3] = finalKey;           // Byte 3: KEY CODE (Was swapped before)
-    report[4] = finalMod;           // Byte 4: MODIFIER (Was swapped before)
+    report[0] = 0x03;               
+    report[1] = activeKeyIndex + 1; 
+    report[2] = 0x01;               
+    report[3] = selectedByte;           
+    report[4] = 0x00; // No modifiers for F-keys in this mode          
     
     try {
         console.log(`Sending: [03, Idx:${report[1]}, Mode:01, Key:${report[3]}, Mod:${report[4]}]`);
@@ -208,18 +130,17 @@ export async function saveActiveBinding() {
         // Save Metadata
         const name = document.getElementById('bind-name').value;
         const desc = document.getElementById('bind-desc').value;
-        const txt = document.getElementById('active-shortcut-display').innerText;
         
         keyMetadata[activeKeyIndex] = { 
             name, 
             desc, 
-            shortcutText: txt, 
-            savedByte: finalKey 
+            shortcutText: selectedText, // "F13" etc.
+            savedByte: selectedByte 
         };
         localStorage.setItem('sayo_metadata', JSON.stringify(keyMetadata));
         
         refreshSummary();
-        alert("Saved! Test it below.");
+        alert("Saved!");
         
     } catch (e) {
         console.error(e);
@@ -227,12 +148,12 @@ export async function saveActiveBinding() {
     }
 }
 
-// 7. CLEAR
+// 6. CLEAR
 export async function clearBinding() {
     if (!device) return alert("Connect Keypad first!");
     const report = new Uint8Array(hwReportLen).fill(0);
     report[0] = 0x03; 
-    report[1] = activeKeyIndex + 1; // 1-based index
+    report[1] = activeKeyIndex + 1; 
     report[2] = 0x00; // Mode 0 = Disable
     
     try {
@@ -241,7 +162,6 @@ export async function clearBinding() {
         localStorage.setItem('sayo_metadata', JSON.stringify(keyMetadata));
         
         document.getElementById('bind-name').value = "";
-        document.getElementById('active-shortcut-display').innerText = "None";
         refreshSummary();
         alert("Key Cleared!");
     } catch (e) { console.error(e); }
@@ -257,18 +177,17 @@ function refreshSummary() {
     entries.forEach(([idx, data]) => {
         tbody.innerHTML += `<tr>
             <td>Key ${parseInt(idx) + 1}</td>
-            <td><strong>${data.name}</strong></td>
+            <td><strong>${data.name || '-'}</strong></td>
             <td><code>${data.shortcutText}</code></td>
-            <td style="color:#aaa;">${data.desc}</td>
+            <td style="color:#aaa;">${data.desc || ''}</td>
         </tr>`;
     });
 }
 
 // Bindings
 document.getElementById('connectBtn').onclick = connectDevice;
-document.getElementById('btn-record-popup').onclick = openRecordModal;
 document.getElementById('save-binding-btn').onclick = saveActiveBinding;
-if(document.getElementById('clear-binding-btn')) document.getElementById('clear-binding-btn').onclick = clearBinding;
+document.getElementById('clear-binding-btn').onclick = clearBinding;
 document.querySelectorAll('.key').forEach(k => k.onclick = () => handleKeySelection(parseInt(k.dataset.idx)));
 
 window.onload = refreshSummary;
