@@ -22,7 +22,7 @@ Object.entries(SCAN_CODES).forEach(([keyName, byte]) => {
 });
 
 // ----------------------------------------
-// NEW: DEBUG LOGGING SYSTEM
+// DEBUG LOGGING SYSTEM
 // ----------------------------------------
 function logToConsole(msg, type = 'info') {
     const consoleDiv = document.getElementById('console-log');
@@ -39,74 +39,77 @@ function logToConsole(msg, type = 'info') {
 }
 
 // ----------------------------------------
-// NEW: DIAGNOSTIC TOOL
+// DIAGNOSTIC TOOL
 // ----------------------------------------
 async function runDiagnostics() {
     if (!device) return logToConsole("❌ No device connected.", "err");
 
     logToConsole("--- DIAGNOSTIC SCAN ---", "info");
     logToConsole(`Product: ${device.productName}`, "info");
-    logToConsole(`Vendor ID: 0x${device.vendorId.toString(16)}`, "info");
     
+    let hasWriteCabability = false;
+
     device.collections.forEach((c, i) => {
-        const type = (c.usagePage === 0xFF00) ? "✅ VENDOR (Open)" : 
-                     (c.usagePage === 0x01)   ? "🔒 GENERIC DESKTOP (Locked?)" : 
+        const type = (c.usagePage === 0xFF00) ? "✅ VENDOR (Config)" : 
+                     (c.usagePage === 0x01)   ? "🔒 GENERIC (Mouse/Key)" : 
+                     (c.usagePage === 0x0C)   ? "🔊 CONSUMER (Knob)" :
                      `❓ Unknown (0x${c.usagePage.toString(16)})`;
         
-        logToConsole(`Collection #${i}: UsagePage ${c.usagePage} (${type})`, "info");
+        const outLen = c.outputReports?.length || 0;
+        const featLen = c.featureReports?.length || 0;
         
-        // Log details about report counts
-        const inputLen = c.inputReports?.length || 0;
-        const outputLen = c.outputReports?.length || 0;
-        const featureLen = c.featureReports?.length || 0;
-        logToConsole(`   > Reports: Input:${inputLen}, Output:${outputLen}, Feature:${featureLen}`, "info");
+        if (outLen > 0 || featLen > 0) hasWriteCabability = true;
+
+        logToConsole(`Coll #${i}: ${type} [Out:${outLen} Feat:${featLen}]`, "info");
     });
     
     logToConsole("-----------------------", "info");
+
+    if (!hasWriteCabability) {
+        logToConsole("⚠️ WARNING: READ-ONLY INTERFACE DETECTED", "err");
+        logToConsole("👉 Please click 'Connect' again and select the OTHER device in the list!", "err");
+        alert("Wrong Interface Selected!\n\nYou connected to the Volume Knob.\nPlease click Connect again and pick the OTHER 'Mini Keyboard' in the list.");
+    }
 }
 
 // 2. Connect Device & Auto-Detect Report Type
 export async function connectDevice() {
     try {
-        // FILTER UPDATE: Look specifically for Usage Page 0xFF00 (Vendor Defined)
-        // This avoids grabbing the "Locked" Keyboard interface on Windows
-        const filters = [
-            { vendorId: 0x1189, usagePage: 0xFF00 }, // Priority: The Config Interface
-            { vendorId: 0x1189 }                     // Fallback: Anything matching the VID
-        ];
-        
-        const devices = await navigator.hid.requestDevice({ filters });
+        // Broad filter to ensure we see ALL interfaces
+        const devices = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x1189 }] });
         
         device = devices[0];
         if (!device) return;
 
         if (!device.opened) await device.open();
         
-        console.log("Device Info:", device.collections);
         logToConsole(`Device Opened: ${device.productName}`, 'info');
 
         // Run Diagnostic immediately
         runDiagnostics();
 
         // --- PROTOCOL DETECTION ---
-        // We prioritize the Vendor page (0xFF00)
-        const collection = device.collections.find(c => c.usagePage === 0xFF00) || device.collections[0];
-        
-        if (collection) {
-            // Auto-detect Output vs Feature based on what's available
-            if (collection.featureReports?.length > 0) {
+        // Look for any collection that allows Writing (Output or Feature)
+        const writableCollection = device.collections.find(c => 
+            (c.outputReports && c.outputReports.length > 0) || 
+            (c.featureReports && c.featureReports.length > 0)
+        );
+
+        if (writableCollection) {
+            if (writableCollection.featureReports?.length > 0) {
                 reportType = 'feature';
-                hwReportId = collection.featureReports[0].reportId;
-                const item = collection.featureReports[0].items?.[0];
-                if (item) hwReportLen = (item.reportCount * item.reportSize) / 8;
-                logToConsole(`Detected FEATURE Protocol. ID: ${hwReportId}, Len: ${hwReportLen}`, 'info');
-            } else if (collection.outputReports?.length > 0) {
+                hwReportId = writableCollection.featureReports[0].reportId;
+                logToConsole(`✅ Detected FEATURE Protocol. ID: ${hwReportId}`, 'tx');
+            } else {
                 reportType = 'output';
-                hwReportId = collection.outputReports[0].reportId;
-                const item = collection.outputReports[0].items?.[0];
-                if (item) hwReportLen = (item.reportCount * item.reportSize) / 8;
-                logToConsole(`Detected OUTPUT Protocol. ID: ${hwReportId}, Len: ${hwReportLen}`, 'info');
+                hwReportId = writableCollection.outputReports[0].reportId;
+                logToConsole(`✅ Detected OUTPUT Protocol. ID: ${hwReportId}`, 'tx');
             }
+        } else {
+            // Default fallback if detection fails (so Manual Overrides still work)
+            reportType = 'output';
+            hwReportId = 0; 
+            logToConsole(`⚠️ No Writable Protocol detected automatically.`, 'err');
         }
 
         document.getElementById('status').innerText = "Status: Connected";
@@ -117,7 +120,6 @@ export async function connectDevice() {
     } catch (e) {
         console.error(e);
         logToConsole(`Connection Failed: ${e.message}`, 'err');
-        alert(`Connection Failed: ${e.message}`);
     }
 }
 
@@ -147,7 +149,7 @@ export async function saveActiveBinding() {
     // 1. Get Values from Debug Panel
     const forceType = document.getElementById('force-report-type').value;
     const forceId = parseInt(document.getElementById('force-report-id').value);
-    // CRITICAL FIX: Use the length from the debug panel (default 8) to avoid hanging
+    // CRITICAL: Use the length from the debug panel (default 8)
     const forceLen = parseInt(document.getElementById('force-length').value) || 8;
 
     // 2. Construct Data Packet (Respecting forced length)
@@ -186,7 +188,6 @@ export async function saveActiveBinding() {
         
     } catch (e) {
         logToConsole(`❌ Error: ${e.message}`, 'err');
-        console.error(e);
     }
 }
 
@@ -226,14 +227,11 @@ const testZone = document.getElementById('key-test-zone');
 
 if (testZone) {
     testZone.addEventListener('keydown', (e) => {
-        e.preventDefault(); // Stop browser actions
-        
+        e.preventDefault(); 
         document.getElementById('last-key-display').innerText = `${e.code}`;
         document.getElementById('d-code').innerText = e.code;
         document.getElementById('d-key').innerText = e.key;
         document.getElementById('d-which').innerText = e.which;
-        
-        // Flash the box
         testZone.style.backgroundColor = '#333';
         setTimeout(() => testZone.style.backgroundColor = '#222', 100);
     });
@@ -244,7 +242,6 @@ document.getElementById('connectBtn').onclick = connectDevice;
 document.getElementById('save-binding-btn').onclick = saveActiveBinding;
 document.querySelectorAll('.key').forEach(k => k.onclick = () => handleKeySelection(parseInt(k.dataset.idx)));
 
-// Debug Bindings
 const clearBtn = document.getElementById('clearLogBtn');
 if(clearBtn) clearBtn.onclick = () => { document.getElementById('console-log').innerHTML = ''; };
 
