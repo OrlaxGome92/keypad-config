@@ -38,11 +38,43 @@ function logToConsole(msg, type = 'info') {
     consoleDiv.scrollTop = consoleDiv.scrollHeight; // Auto-scroll
 }
 
+// ----------------------------------------
+// NEW: DIAGNOSTIC TOOL
+// ----------------------------------------
+async function runDiagnostics() {
+    if (!device) return logToConsole("❌ No device connected.", "err");
+
+    logToConsole("--- DIAGNOSTIC SCAN ---", "info");
+    logToConsole(`Product: ${device.productName}`, "info");
+    logToConsole(`Vendor ID: 0x${device.vendorId.toString(16)}`, "info");
+    
+    device.collections.forEach((c, i) => {
+        const type = (c.usagePage === 0xFF00) ? "✅ VENDOR (Open)" : 
+                     (c.usagePage === 0x01)   ? "🔒 GENERIC DESKTOP (Locked?)" : 
+                     `❓ Unknown (0x${c.usagePage.toString(16)})`;
+        
+        logToConsole(`Collection #${i}: UsagePage ${c.usagePage} (${type})`, "info");
+        
+        // Log details about report counts
+        const inputLen = c.inputReports?.length || 0;
+        const outputLen = c.outputReports?.length || 0;
+        const featureLen = c.featureReports?.length || 0;
+        logToConsole(`   > Reports: Input:${inputLen}, Output:${outputLen}, Feature:${featureLen}`, "info");
+    });
+    
+    logToConsole("-----------------------", "info");
+}
+
 // 2. Connect Device & Auto-Detect Report Type
 export async function connectDevice() {
     try {
-        // VID 0x1189 is the standard for "MINI KeyBoard"
-        const filters = [{ vendorId: 0x1189 }];
+        // FILTER UPDATE: Look specifically for Usage Page 0xFF00 (Vendor Defined)
+        // This avoids grabbing the "Locked" Keyboard interface on Windows
+        const filters = [
+            { vendorId: 0x1189, usagePage: 0xFF00 }, // Priority: The Config Interface
+            { vendorId: 0x1189 }                     // Fallback: Anything matching the VID
+        ];
+        
         const devices = await navigator.hid.requestDevice({ filters });
         
         device = devices[0];
@@ -53,10 +85,15 @@ export async function connectDevice() {
         console.log("Device Info:", device.collections);
         logToConsole(`Device Opened: ${device.productName}`, 'info');
 
+        // Run Diagnostic immediately
+        runDiagnostics();
+
         // --- PROTOCOL DETECTION ---
+        // We prioritize the Vendor page (0xFF00)
         const collection = device.collections.find(c => c.usagePage === 0xFF00) || device.collections[0];
         
         if (collection) {
+            // Auto-detect Output vs Feature based on what's available
             if (collection.featureReports?.length > 0) {
                 reportType = 'feature';
                 hwReportId = collection.featureReports[0].reportId;
@@ -213,5 +250,8 @@ if(clearBtn) clearBtn.onclick = () => { document.getElementById('console-log').i
 
 const resendBtn = document.getElementById('send-test-btn');
 if(resendBtn) resendBtn.onclick = saveActiveBinding;
+
+const diagnoseBtn = document.getElementById('diagnoseBtn');
+if(diagnoseBtn) diagnoseBtn.onclick = runDiagnostics;
 
 window.onload = refreshSummary;

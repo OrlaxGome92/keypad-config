@@ -16,7 +16,7 @@
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #333; }
         th { background: #252525; color: var(--primary); font-size: 0.9rem; }
 
-        /* --- DEBUG PANEL STYLES (Added for Engineering Dashboard) --- */
+        /* --- DEBUG PANEL STYLES (Engineering Dashboard) --- */
         .debug-panel {
             margin-top: 50px;
             width: 100%;
@@ -191,7 +191,10 @@
         <div class="debug-panel">
             <div class="debug-header">
                 <h3>🔧 Engineering Dashboard</h3>
-                <button id="clearLogBtn" class="secondary-btn">Clear Logs</button>
+                <div style="display:flex; gap:10px;">
+                    <button id="diagnoseBtn" class="secondary-btn" style="background:#d200ff; color:white;">🔍 Run Diagnostic</button>
+                    <button id="clearLogBtn" class="secondary-btn">Clear Logs</button>
+                </div>
             </div>
 
             <div class="test-area">
