@@ -10,6 +10,7 @@ let tempMod = 0;
 let tempKeyByte = 0;
 let tempText = "";
 
+// Device Hardware Info
 let hwReportId = 0;
 let hwReportLen = 64;
 
@@ -18,7 +19,6 @@ let keyMetadata = JSON.parse(localStorage.getItem('sayo_metadata')) || {};
 // 1. Initialize Dropdown (F13-F24)
 const fSelector = document.getElementById('fkey-selector');
 Object.entries(SCAN_CODES).forEach(([keyName, byte]) => {
-    // F13-F24 Only
     if (keyName.startsWith('F') && parseInt(keyName.substring(1)) >= 13) {
         fSelector.add(new Option(keyName, byte));
     }
@@ -26,11 +26,8 @@ Object.entries(SCAN_CODES).forEach(([keyName, byte]) => {
 
 // EVENT: Dropdown Changed manually
 fSelector.addEventListener('change', (e) => {
-    // Update the payload immediately so if they click Save it uses this
     currentPayload.keyByte = parseInt(e.target.value);
     currentPayload.mod = 0; 
-    
-    // Update visual text to match the F-Key name
     document.getElementById('active-shortcut-display').innerText = e.target.options[e.target.selectedIndex].text;
 });
 
@@ -53,12 +50,9 @@ export async function connectDevice() {
                 const item = configCollection.outputReports[0].items[0];
                 hwReportLen = (item.reportCount * item.reportSize) / 8;
             }
-        } else {
-            hwReportId = 0; // Fallback
         }
         
         console.log(`Connected. ReportID=${hwReportId}, BufferLen=${hwReportLen}`);
-        
         document.getElementById('status').innerText = "Status: Connected";
         document.getElementById('status').style.color = "#00d2ff";
         document.getElementById('connectBtn').style.display = 'none';
@@ -70,9 +64,9 @@ export async function connectDevice() {
     }
 }
 
-// 3. Handle Key Selection (FIXED: Loads Saved F-Key)
+// 3. Handle Key Selection
 export function handleKeySelection(idx) {
-    activeKeyIndex = idx;
+    activeKeyIndex = idx; // idx is 0-based from the HTML (0 for K1, 1 for K2...)
     
     // UI Highlight
     document.querySelectorAll('.key').forEach(k => k.classList.remove('active'));
@@ -80,19 +74,16 @@ export function handleKeySelection(idx) {
     document.getElementById('editor-container').classList.remove('hidden');
     document.getElementById('editingLabel').innerText = `Editing Key ${idx + 1}`;
     
-    // Calculate Default F-Key if none saved (K1=F13, K2=F14...)
-    // Note: F13 starts at 0x68 (104). 
-    // We can just grab the Byte from utils logic or calculate it.
-    // F13=0x68, F14=0x69. So Default = 0x68 + idx.
-    const defaultFKeyByte = 0x68 + idx;
+    // Calculate Defaults
+    const defaultFKeyByte = 0x68 + idx; // F13 + idx
     const defaultFKeyName = `F${13 + idx}`;
 
     // Load Data
     const data = keyMetadata[idx] || { 
         name: "", 
         desc: "", 
-        shortcutText: defaultFKeyName, // Default text
-        savedByte: defaultFKeyByte     // Default hardware trigger
+        shortcutText: defaultFKeyName, 
+        savedByte: defaultFKeyByte 
     };
     
     // Fill Fields
@@ -100,17 +91,15 @@ export function handleKeySelection(idx) {
     document.getElementById('bind-desc').value = data.desc;
     document.getElementById('active-shortcut-display').innerText = data.shortcutText;
 
-    // --- CRITICAL FIX: Update Dropdown to match saved data ---
-    // If we have a saved byte, set the dropdown to it. 
-    // If not, try to set it to the calculated default.
-    if (data.savedByte) {
-        fSelector.value = data.savedByte;
+    // Restore Dropdown State
+    if (data.savedByte && SCAN_CODES[data.shortcutText] === data.savedByte) {
+         fSelector.value = data.savedByte;
     } else {
-        // Safe fallback if logic fails
-        fSelector.value = SCAN_CODES["F13"]; 
+         // If current binding is a complex shortcut (Ctrl+C), reset dropdown to default F-key
+         fSelector.value = defaultFKeyByte;
     }
 
-    // Reset current payload so we don't carry over old clicks
+    // Reset current payload
     currentPayload = { mod: 0, keyByte: 0 };
 }
 
@@ -130,7 +119,7 @@ window.addEventListener('keydown', (e) => {
     if (!modal.classList.contains('hidden')) {
         e.preventDefault();
         
-        // Modifiers
+        // Modifiers Bitmask (1=Ctrl, 2=Shift, 4=Alt, 8=Win)
         tempMod = (e.ctrlKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
         
         const mods = [];
@@ -173,76 +162,64 @@ if(testInput) {
         if (e.ctrlKey) mods.push("Ctrl");
         if (e.shiftKey) mods.push("Shift");
         if (e.altKey) mods.push("Alt");
-        
         let keyPart = "";
-        if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
-            keyPart = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-        }
-
-        const fullStr = (mods.length > 0 ? mods.join(" + ") + " + " : "") + keyPart;
-        testInput.value = fullStr;
-        testOutput.innerText = `Debug: Code=${e.code} | Ctrl=${e.ctrlKey} | Shift=${e.shiftKey}`;
-        
+        if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) keyPart = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+        testInput.value = (mods.length > 0 ? mods.join(" + ") + " + " : "") + keyPart;
+        testOutput.innerText = `Debug: Code=${e.code} | Ctrl=${e.ctrlKey}`;
         testInput.style.borderColor = "#00ff00";
         setTimeout(() => testInput.style.borderColor = "#555", 200);
     });
 }
 
-// 6. SAVE (V3 COMBO PROTOCOL)
+// 6. SAVE (CORRECTED PROTOCOL)
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
     
-    // Logic: If user didn't record a shortcut, use the dropdown value
-    let finalKeyByte = currentPayload.keyByte;
+    // Determine what to write: Recording OR Dropdown
+    let finalKey = currentPayload.keyByte;
+    let finalMod = currentPayload.mod;
     
-    // If keyByte is 0, it means the user didn't record a new combo OR change the dropdown manually THIS session.
-    // We must grab the current value of the dropdown.
-    if (finalKeyByte === 0) {
-        finalKeyByte = parseInt(document.getElementById('fkey-selector').value);
+    // If no new recording, use the dropdown value
+    if (finalKey === 0) {
+        finalKey = parseInt(document.getElementById('fkey-selector').value);
+        finalMod = 0; // F-Keys usually have no modifiers
     }
     
-    if (!finalKeyByte) return alert("Error: Invalid Key Selection.");
+    if (!finalKey) return alert("Error: Invalid Key Selection.");
 
     const report = new Uint8Array(hwReportLen).fill(0);
     
-    // [0] Cmd, [1] Index, [2] Mode=0x11, [3] ModMask, [4] 0, [5] 0, [6] KeyCode
-    report[0] = 0x03; 
-    report[1] = activeKeyIndex; 
-    report[2] = 0x11; 
-    report[3] = currentPayload.mod; 
-    report[4] = 0x00; 
-    report[5] = 0x00; 
-    report[6] = finalKeyByte; 
+    // --- PROTOCOL FIX ---
+    // Mode 0x01 (Keyboard)
+    // Byte 1: Key Index (1-BASED! activeKeyIndex + 1)
+    // Byte 3: Key Code (e.g., C)
+    // Byte 4: Modifier (e.g., Ctrl)
+    
+    report[0] = 0x03;               // Command
+    report[1] = activeKeyIndex + 1; // Index (1-based: K1=1, K2=2)
+    report[2] = 0x01;               // Mode 1: Keyboard
+    report[3] = finalKey;           // Byte 3: KEY CODE (Was swapped before)
+    report[4] = finalMod;           // Byte 4: MODIFIER (Was swapped before)
     
     try {
-        console.log(`Sending: [03, ${activeKeyIndex}, 11, ${currentPayload.mod}, 0, 0, ${finalKeyByte}]`);
+        console.log(`Sending: [03, Idx:${report[1]}, Mode:01, Key:${report[3]}, Mod:${report[4]}]`);
         await device.sendReport(hwReportId, report);
         
-        // Save Metadata (FIXED: SAVING THE F-KEY BYTE)
+        // Save Metadata
         const name = document.getElementById('bind-name').value;
         const desc = document.getElementById('bind-desc').value;
         const txt = document.getElementById('active-shortcut-display').innerText;
         
-        // We save 'savedByte' using the dropdown value so we can restore it later
-        // Note: If the user recorded a combo (like Ctrl+C), 'finalKeyByte' is 'C' (0x06).
-        // If they just picked F13, 'finalKeyByte' is 0x68.
-        // We probably want to save specifically the hardware trigger preference separate from the combo?
-        // Actually, for this specific request, the user wants to ensure the Dropdown (Internal F-Key) is unique.
-        // But in this logic, the Dropdown IS the key sent to the device if no combo is recorded.
-        // Let's rely on the dropdown's current value for restoration.
-        const currentDropdownValue = parseInt(document.getElementById('fkey-selector').value);
-
         keyMetadata[activeKeyIndex] = { 
             name, 
             desc, 
             shortcutText: txt, 
-            savedByte: currentDropdownValue // Persist the dropdown state
+            savedByte: finalKey 
         };
-        
         localStorage.setItem('sayo_metadata', JSON.stringify(keyMetadata));
         
         refreshSummary();
-        alert("Saved!");
+        alert("Saved! Test it below.");
         
     } catch (e) {
         console.error(e);
@@ -255,18 +232,17 @@ export async function clearBinding() {
     if (!device) return alert("Connect Keypad first!");
     const report = new Uint8Array(hwReportLen).fill(0);
     report[0] = 0x03; 
-    report[1] = activeKeyIndex;
-    report[2] = 0x00;
+    report[1] = activeKeyIndex + 1; // 1-based index
+    report[2] = 0x00; // Mode 0 = Disable
     
     try {
         await device.sendReport(hwReportId, report);
         delete keyMetadata[activeKeyIndex];
         localStorage.setItem('sayo_metadata', JSON.stringify(keyMetadata));
-        refreshSummary();
-        // Reset UI defaults
+        
         document.getElementById('bind-name').value = "";
-        document.getElementById('active-shortcut-display').innerText = `F${13 + activeKeyIndex}`;
-        document.getElementById('fkey-selector').value = SCAN_CODES[`F${13 + activeKeyIndex}`];
+        document.getElementById('active-shortcut-display').innerText = "None";
+        refreshSummary();
         alert("Key Cleared!");
     } catch (e) { console.error(e); }
 }
@@ -279,16 +255,10 @@ function refreshSummary() {
     if(entries.length === 0) tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No keys programmed.</td></tr>';
     
     entries.forEach(([idx, data]) => {
-        // Look up the readable name of the Saved Byte (e.g. 0x68 -> "F13")
-        let hwLabel = "Unknown";
-        const savedVal = data.savedByte;
-        const entry = Object.entries(SCAN_CODES).find(([k, v]) => v === savedVal);
-        if(entry) hwLabel = entry[0];
-
         tbody.innerHTML += `<tr>
             <td>Key ${parseInt(idx) + 1}</td>
             <td><strong>${data.name}</strong></td>
-            <td><code>${data.shortcutText}</code> <span style="font-size:0.8em; color:#666">(${hwLabel})</span></td>
+            <td><code>${data.shortcutText}</code></td>
             <td style="color:#aaa;">${data.desc}</td>
         </tr>`;
     });
