@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Keypad Web Center</title>
     <link rel="stylesheet" href="./style.css">
+    <style>
+        /* Table Styling */
+        .summary-section { margin-top: 40px; width: 100%; max-width: 800px; }
+        table { width: 100%; border-collapse: collapse; background: #1e1e1e; border-radius: 8px; overflow: hidden; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #333; }
+        th { background: #252525; color: var(--primary); font-size: 0.9rem; }
+        tr:last-child td { border-bottom: none; }
+        .empty-msg { color: #666; font-style: italic; padding: 20px; text-align: center; }
+    </style>
 </head>
 <body>
     <div class="sidebar" id="layerList">
@@ -40,37 +49,48 @@
             <div id="editor-container" class="hidden">
                 <div id="action-menu">
                     <h3 id="editingLabel">Key 1</h3>
-                    <button id="btn-new">➕ New</button>
-                    <button id="btn-edit">✏️ Edit</button>
-                    <button id="btn-delete" class="danger">🗑️ Delete</button>
+                    <p style="font-size: 0.8rem; color: #888;">Hardware: <span id="hw-target">F13</span></p>
+                    <button id="btn-new">➕ New Recording</button>
+                    <button id="btn-delete" class="danger">🗑️ Clear Key</button>
                 </div>
 
                 <div id="binding-form" class="hidden">
                     <div class="control-group">
                         <label>Binding Name:</label>
-                        <input type="text" id="bind-name" placeholder="e.g. Copy Tool">
+                        <input type="text" id="bind-name" placeholder="e.g. Photoshop Copy">
                     </div>
                     <div class="control-group">
-                        <label>Shortcut (Press keys to record):</label>
+                        <label>Shortcut Action (Record):</label>
                         <div id="shortcut-recorder">Click 'New' to record</div>
                     </div>
                     <div class="control-group">
-                        <label>Description:</label>
-                        <textarea id="bind-desc" rows="3" placeholder="What does this key do?"></textarea>
+                        <label>Notes:</label>
+                        <textarea id="bind-desc" rows="3" placeholder="Identify use case..."></textarea>
                     </div>
-                    <button id="save-binding-btn">💾 Save to Keypad</button>
+                    <button id="save-binding-btn">💾 Save to Hardware</button>
                 </div>
             </div>
+        </div>
+
+        <div class="summary-section">
+            <h3>Configuration Summary</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Hardware Key</th>
+                        <th>Name</th>
+                        <th>Shortcut</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody id="summary-body">
+                    </tbody>
+            </table>
         </div>
 
         <div class="test-bench">
             <h3>Live Key Test</h3>
             <div id="testDisplay">Connect device and press keys to test...</div>
-        </div>
-
-        <div class="media-preview" id="player">
-            <img src="" id="slide" class="hidden">
-            <p id="mediaStatus">Media Player Idle</p>
         </div>
     </div>
 
@@ -79,29 +99,48 @@
             connectDevice, 
             saveActiveBinding, 
             startNewBinding, 
-            handleKeySelection,
-            deleteBinding 
+            handleKeySelection 
         } from './main.js';
 
-        // Interface Listeners
         document.getElementById('connectBtn').onclick = connectDevice;
         document.getElementById('btn-new').onclick = startNewBinding;
-        document.getElementById('save-binding-btn').onclick = saveActiveBinding;
-        document.getElementById('btn-delete').onclick = deleteBinding;
+        document.getElementById('save-binding-btn').onclick = async () => {
+            await saveActiveBinding();
+            refreshSummary(); // Refresh table after save
+        };
 
-        // Visual Key Selection
         document.querySelectorAll('.key').forEach(el => {
             el.addEventListener('click', () => {
                 const idx = parseInt(el.dataset.idx);
                 handleKeySelection(idx);
+                document.getElementById('hw-target').innerText = `F${13 + idx}`;
             });
         });
 
-        // Global Keyboard Listener for Recorder
-        window.addEventListener('keydown', (e) => {
-            // This is handled inside main.js via an exported function
-            // or by checking a global state.
-        });
+        // Function to refresh the summary table
+        function refreshSummary() {
+            const tbody = document.getElementById('summary-body');
+            const data = JSON.parse(localStorage.getItem('sayo_metadata')) || {};
+            tbody.innerHTML = '';
+
+            if (Object.keys(data).length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty-msg">No keys programmed yet.</td></tr>';
+                return;
+            }
+
+            Object.entries(data).sort().forEach(([idx, meta]) => {
+                const row = `<tr>
+                    <td>K${parseInt(idx) + 1} (F${13 + parseInt(idx)})</td>
+                    <td>${meta.name || '---'}</td>
+                    <td>${meta.shortcutText || 'Unknown'}</td>
+                    <td>${meta.desc || '---'}</td>
+                </tr>`;
+                tbody.innerHTML += row;
+            });
+        }
+
+        // Load summary on startup
+        window.onload = refreshSummary;
     </script>
 </body>
 </html>
