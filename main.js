@@ -1,4 +1,4 @@
-/* main.js - Protocol Fix (Method A) */
+/* main.js - Hybrid Fix (Command 0xA1 + Correct Byte Order) */
 import { SCAN_CODES } from './utils.js';
 
 let device;
@@ -82,7 +82,6 @@ async function runDiagnostics() {
 // ----------------------------------------
 export async function connectDevice() {
     try {
-        // Broad filter to catch most CH55x / SayoDevices
         const filters = [{ vendorId: 0x1189 }];
         const devices = await navigator.hid.requestDevice({ filters });
         
@@ -100,7 +99,7 @@ export async function connectDevice() {
             if (writable.outputReports?.length > 0) defId = writable.outputReports[0].reportId;
             else if (writable.featureReports?.length > 0) defId = writable.featureReports[0].reportId;
             
-            // Default to ID 3 if 0 was detected (common issue)
+            // Default to ID 3 if 0 was detected
             if (defId === 0) defId = 3;
             
             document.getElementById('force-report-id').value = defId;
@@ -118,7 +117,7 @@ export async function connectDevice() {
 }
 
 // ----------------------------------------
-// SAVE (FIXED PROTOCOL - METHOD A)
+// SAVE (HYBRID FIX: 0xA1 Command + Correct Byte Order)
 // ----------------------------------------
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
@@ -130,21 +129,21 @@ export async function saveActiveBinding() {
     const useId = parseInt(document.getElementById('force-report-id').value);
     const useLen = parseInt(document.getElementById('force-length').value) || 64; 
 
-    // --- PACKET CONSTRUCTION (Standard 0x1189) ---
-    // Protocol: [KeyIndex, Type, Modifier, KeyCode, Padding, Padding, Padding, Checksum]
-    // The Command Byte (0xA1) is REMOVED. The Report ID serves as the command.
-
+    // --- PACKET CONSTRUCTION ---
+    // [0xA1, KeyIndex, Type, Modifiers, KeyCode, Pad, Pad, Checksum]
+    
     const data = new Uint8Array(useLen).fill(0);
     
-    data[0] = activeKeyIndex + 1; // Byte 0: Key Index (1-based)
-    data[1] = 0x01;               // Byte 1: Type (0x01 = Keyboard)
-    data[2] = 0x00;               // Byte 2: Modifiers (0x00)
-    data[3] = selectedByte;       // Byte 3: Key Code (e.g. 0x68 for F13)
-    
-    // Bytes 4, 5, 6 are Padding (0x00)
+    data[0] = 0xA1;               // Byte 0: Command (Write Config)
+    data[1] = activeKeyIndex + 1; // Byte 1: Key Index (1-based)
+    data[2] = 0x01;               // Byte 2: Type (0x01 = Keyboard)
+    data[3] = 0x00;               // Byte 3: Modifiers (Fixed: Moved here!)
+    data[4] = selectedByte;       // Byte 4: Key Code  (Fixed: Moved here!)
+    data[5] = 0x00;               // Byte 5: Padding
+    data[6] = 0x00;               // Byte 6: Padding
 
-    // Calculate Checksum (Sum of bytes 0-6)
-    // Placed at Byte 7
+    // Checksum (Sum of bytes 0-6)
+    // Placed at Byte 7, which is standard for these 8-byte logic blocks
     let sum = 0;
     for(let i = 0; i < 7; i++) {
         sum += data[i];
@@ -154,7 +153,6 @@ export async function saveActiveBinding() {
     logToConsole(`Sending [${data.slice(0,8).join(',')}...] (${useLen} bytes) to ID:${useId}`, 'info');
 
     try {
-        // Note: useId is passed as the first argument, NOT part of the data array
         const sendPromise = (useType === 'feature') 
             ? device.sendFeatureReport(useId, data)
             : device.sendReport(useId, data);
