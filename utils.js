@@ -22,7 +22,7 @@ export const SCAN_CODES = {
     "F1": 0x3A, "F2": 0x3B, "F3": 0x3C, "F4": 0x3D, "F5": 0x3E, "F6": 0x3F,
     "F7": 0x40, "F8": 0x41, "F9": 0x42, "F10": 0x43, "F11": 0x44, "F12": 0x45,
 
-    // Extended Function Keys (Great for software layer triggers)
+    // Extended Function Keys (Useful for software layer triggers)
     "F13": 0x68, "F14": 0x69, "F15": 0x6A, "F16": 0x6B, "F17": 0x6C, "F18": 0x6D,
     "F19": 0x6E, "F20": 0x6F, "F21": 0x70, "F22": 0x71, "F23": 0x72, "F24": 0x73,
 
@@ -30,11 +30,6 @@ export const SCAN_CODES = {
     "PrintScreen": 0x46, "ScrollLock": 0x47, "Pause": 0x48, "Insert": 0x49,
     "Home": 0x4A, "PageUp": 0x4B, "Delete": 0x4C, "End": 0x4D, "PageDown": 0x4E,
     "Right": 0x4F, "Left": 0x50, "Down": 0x51, "Up": 0x52,
-
-    // Keypad Specific
-    "NumLock": 0x53, "KP_Slash": 0x54, "KP_Star": 0x55, "KP_Minus": 0x56, "KP_Plus": 0x57,
-    "KP_Enter": 0x58, "KP_1": 0x59, "KP_2": 0x5A, "KP_3": 0x5B, "KP_4": 0x5C,
-    "KP_5": 0x5D, "KP_6": 0x5E, "KP_7": 0x5F, "KP_8": 0x60, "KP_9": 0x61, "KP_0": 0x62,
 
     // Multimedia & System (Consumer Page Codes)
     "Mute": 0xEF, 

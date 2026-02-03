@@ -1,120 +1,153 @@
 import { SCAN_CODES, MODIFIERS } from './utils.js';
 
 let device;
+let activeKeyIndex = null;
+let isRecording = false;
+let recordedMod = 0;
+let recordedKey = 0;
+
+// Local database to store Names and Descriptions
+let keyMetadata = JSON.parse(localStorage.getItem('sayo_metadata')) || {};
 
 /**
- * Connects to the hardware. 
- * Note: We filter for usagePage 0xFF00 to avoid the blocked Keyboard interface.
+ * Hardware Connection Logic
+ * Filters for the Vendor Interface to bypass NotAllowedError.
  */
 export async function connectDevice() {
     try {
         const filters = [{ vendorId: 0x1189, productId: 0x8890 }];
         const devices = await navigator.hid.requestDevice({ filters });
         
-        // The "NotAllowedError" usually happens because the browser picks the Keyboard interface.
-        // We look for the Vendor-Defined collection (0xFF00) which allows configuration.
+        // Target Usage Page 0xFF00 (Vendor Defined)
         device = devices.find(d => 
             d.collections.some(c => c.usagePage === 0xFF00 || c.usagePage === 0xFF60)
         );
 
         if (!device) {
-            alert("Keypad found, but the configuration interface is restricted. Please re-plug and pick a different entry in the list.");
+            alert("Keypad found, but configuration interface is blocked. Re-plug and select 'HID-compliant device'.");
             return;
         }
 
         await device.open();
-        
-        // UI Updates
         document.getElementById('status').innerText = "Status: Connected to " + device.productName;
         document.getElementById('connectBtn').style.display = 'none';
-        
-        console.log("HID Connection Established on Vendor Interface.");
-    } catch (error) {
-        console.error("Connection failed:", error);
-        alert("Connection failed. Ensure you are on HTTPS and chose the correct device.");
+    } catch (e) {
+        alert("Connection failed. Ensure you are using HTTPS.");
     }
 }
 
 /**
- * Sends the 64-byte configuration packet to the keypad.
+ * CRUD: Handle Key Selection
+ * Opens the sidebar and loads existing metadata.
  */
-export async function saveKeyConfig(index, modName, keyName) {
-    if (!device || !device.opened) {
-        alert("Please connect the device first!");
-        return;
-    }
+export function handleKeySelection(idx) {
+    activeKeyIndex = idx;
+    isRecording = false;
+    
+    // UI Feedback
+    document.querySelectorAll('.key').forEach(k => k.classList.remove('active'));
+    document.getElementById(`v-${idx}`).classList.add('active');
+    document.getElementById('editor-container').classList.remove('hidden');
+    document.getElementById('binding-form').classList.add('hidden');
+    
+    const label = idx === 6 ? "Knob" : `Key ${idx + 1}`;
+    document.getElementById('editingLabel').innerText = label;
 
-    const modByte = MODIFIERS[modName] || 0;
-    const keyByte = SCAN_CODES[keyName] || 0;
+    // Load existing metadata if available
+    const data = keyMetadata[idx] || { name: "", desc: "" };
+    document.getElementById('bind-name').value = data.name;
+    document.getElementById('bind-desc').value = data.desc;
+}
 
-    // Standard 64-byte report for the 1189:8890 chipset.
+/**
+ * CRUD: New Binding (Record Mode)
+ * Starts listening for physical keystrokes.
+ */
+export function startNewBinding() {
+    isRecording = true;
+    recordedMod = 0;
+    recordedKey = 0;
+    
+    document.getElementById('binding-form').classList.remove('hidden');
+    const recorder = document.getElementById('shortcut-recorder');
+    recorder.innerText = "Listening... Press keys now";
+    recorder.style.borderColor = "var(--primary)";
+}
+
+/**
+ * Keyboard Listener for Recording
+ */
+window.addEventListener('keydown', (e) => {
+    if (!isRecording) return;
+    
+    // Prevent browser default actions (like Ctrl+S saving the page)
+    e.preventDefault();
+
+    // Calculate HID Modifiers
+    recordedMod = (e.ctrlKey ? 0x01 : 0) | (e.shiftKey ? 0x02 : 0) | (e.altKey ? 0x04 : 0) | (e.metaKey ? 0x08 : 0);
+    
+    // Map to HID Scan Code from utils.js
+    const keyLookup = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    recordedKey = SCAN_CODES[keyLookup] || 0;
+
+    const modText = (e.ctrlKey ? 'Ctrl+' : '') + (e.shiftKey ? 'Shift+' : '') + (e.altKey ? 'Alt+' : '');
+    document.getElementById('shortcut-recorder').innerText = `${modText}${e.key}`;
+});
+
+/**
+ * CRUD: Save / Update
+ * Sends data to hardware and saves metadata to LocalStorage.
+ */
+export async function saveActiveBinding() {
+    if (!device) return alert("Connect Keypad first!");
+
+    const name = document.getElementById('bind-name').value;
+    const desc = document.getElementById('bind-desc').value;
+
+    // Sayo 64-byte protocol
     const report = new Uint8Array(64);
-    report[0] = 0x03; // Command: Set Key
-    report[1] = index; // 0-5 for Keys, 6 for Knob
-    report[2] = 0x11; // Mode: Static Key
-    report[3] = 0x01; // Layer 1
-    report[4] = 0x01; // Enable
-    report[5] = modByte;
-    report[6] = keyByte;
+    report[0] = 0x03; 
+    report[1] = activeKeyIndex; 
+    report[2] = 0x11; 
+    report[3] = 0x01; 
+    report[4] = 0x01; 
+    report[5] = recordedMod;
+    report[6] = recordedKey;
 
     try {
-        // Attempting write on Report ID 0
         await device.sendReport(0, report);
-        alert(`Successfully saved Key ${index + 1}!`);
-    } catch (error) {
-        console.error("Write failed:", error);
-        // Fallback for different firmware versions
-        try {
-            await device.sendReport(1, report.slice(1));
-            alert("Saved successfully via alternate Report ID.");
-        } catch (e) {
-            alert("NotAllowedError: The browser is blocking the write to this specific interface. Try re-plugging.");
-        }
+        
+        // Save metadata locally
+        keyMetadata[activeKeyIndex] = { name, desc, mod: recordedMod, key: recordedKey };
+        localStorage.setItem('sayo_metadata', JSON.stringify(keyMetadata));
+        
+        isRecording = false;
+        alert("Keypad updated successfully!");
+    } catch (e) {
+        alert("Write failed: " + e.message);
     }
 }
 
-// --- FIXING THE EXPORT CONFLICT ---
-// We explicitly bind these to the window object so the HTML 'onclick' can find them.
-window.connectDevice = connectDevice;
-window.saveKeyConfig = saveKeyConfig;
-
 /**
- * Media Slideshow Logic
- * Replicates the folder-browsing feature of your Tkinter app.
+ * CRUD: Delete
+ * Wipes the key by sending 0x00 (None).
  */
-let mediaFiles = [];
-let slideTimer;
-
-export async function selectMediaFolder() {
-    try {
-        const directoryHandle = await window.showDirectoryPicker();
-        mediaFiles = [];
-        for await (const entry of directoryHandle.values()) {
-            if (entry.kind === 'file' && /\.(jpe?g|png|gif)$/i.test(entry.name)) {
-                mediaFiles.push(await entry.getFile());
-            }
-        }
-        if (mediaFiles.length > 0) startSlideshow();
-    } catch (e) { console.log("Folder selection cancelled."); }
+export async function deleteBinding() {
+    if (!confirm("Clear this key's configuration?")) return;
+    
+    recordedMod = 0;
+    recordedKey = 0;
+    document.getElementById('bind-name').value = "";
+    document.getElementById('bind-desc').value = "";
+    
+    await saveActiveBinding();
+    delete keyMetadata[activeKeyIndex];
+    localStorage.setItem('sayo_metadata', JSON.stringify(keyMetadata));
 }
 
-function startSlideshow() {
-    if (slideTimer) clearInterval(slideTimer);
-    const img = document.getElementById('slide');
-    const status = document.getElementById('mediaStatus');
-    let i = 0;
-
-    status.style.display = 'none';
-    img.classList.remove('hidden');
-
-    const next = () => {
-        img.src = URL.createObjectURL(mediaFiles[i]);
-        i = (i + 1) % mediaFiles.length;
-    };
-    next();
-    slideTimer = setInterval(next, 5000); // 5-second interval
-}
-
-// Bind folder button
-window.selectMediaFolder = selectMediaFolder;
-document.getElementById('folderBtn').onclick = selectMediaFolder;
+// Global Bindings to resolve Export Conflict
+window.connectDevice = connectDevice;
+window.handleKeySelection = handleKeySelection;
+window.startNewBinding = startNewBinding;
+window.saveActiveBinding = saveActiveBinding;
+window.deleteBinding = deleteBinding;

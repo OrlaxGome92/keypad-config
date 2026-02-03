@@ -10,15 +10,11 @@
     <div class="sidebar" id="layerList">
         <h3>Layers</h3>
         <div id="layersContainer">
-            <div class="layer-item active" onclick="location.reload()">Base Layer</div>
+            <div class="layer-item active">Base Layer</div>
         </div>
         <button id="addLayerBtn">+ Add Layer</button>
         <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
         <button id="folderBtn">📁 Select Media Folder</button>
-        <div style="margin-top: 20px;">
-            <label for="importFile" style="cursor: pointer; background: #333; padding: 10px; border-radius: 5px; display: block; text-align: center;">📂 Import Config</label>
-            <input type="file" id="importFile" style="display:none;">
-        </div>
     </div>
 
     <div class="workspace">
@@ -30,44 +26,46 @@
             </div>
         </header>
         
-        <div class="keypad-visual">
-            <div class="key knob" id="v-6" data-idx="6">Knob</div>
-            <div class="key" id="v-0" data-idx="0">K1</div>
-            <div class="key" id="v-1" data-idx="1">K2</div>
-            <div class="key" id="v-2" data-idx="2">K3</div>
-            <div class="key" id="v-3" data-idx="3">K4</div>
-            <div class="key" id="v-4" data-idx="4">K5</div>
-            <div class="key" id="v-5" data-idx="5">K6</div>
-        </div>
+        <div class="main-interface">
+            <div class="keypad-visual">
+                <div class="key knob" id="v-6" data-idx="6">Knob</div>
+                <div class="key" id="v-0" data-idx="0">K1</div>
+                <div class="key" id="v-1" data-idx="1">K2</div>
+                <div class="key" id="v-2" data-idx="2">K3</div>
+                <div class="key" id="v-3" data-idx="3">K4</div>
+                <div class="key" id="v-4" data-idx="4">K5</div>
+                <div class="key" id="v-5" data-idx="5">K6</div>
+            </div>
 
-        <div id="configPanel" class="hidden">
-            <h3 id="editingLabel">Editing Key</h3>
-            
-            <div class="control-group">
-                <label>Action Type:</label>
-                <select id="actionType">
-                    <option value="hardware">Hardware Key (On-Board)</option>
-                    <option value="macro">Software Macro (Browser)</option>
-                </select>
+            <div id="editor-container" class="hidden">
+                <div id="action-menu">
+                    <h3 id="editingLabel">Key 1</h3>
+                    <button id="btn-new">➕ New</button>
+                    <button id="btn-edit">✏️ Edit</button>
+                    <button id="btn-delete" class="danger">🗑️ Delete</button>
+                </div>
+
+                <div id="binding-form" class="hidden">
+                    <div class="control-group">
+                        <label>Binding Name:</label>
+                        <input type="text" id="bind-name" placeholder="e.g. Copy Tool">
+                    </div>
+                    <div class="control-group">
+                        <label>Shortcut (Press keys to record):</label>
+                        <div id="shortcut-recorder">Click 'New' to record</div>
+                    </div>
+                    <div class="control-group">
+                        <label>Description:</label>
+                        <textarea id="bind-desc" rows="3" placeholder="What does this key do?"></textarea>
+                    </div>
+                    <button id="save-binding-btn">💾 Save to Keypad</button>
+                </div>
             </div>
-            
-            <div class="control-group">
-                <label>Modifier:</label>
-                <select id="modSelect"></select>
-            </div>
-            
-            <div class="control-group">
-                <label>Key/Action:</label>
-                <select id="keySelect"></select>
-            </div>
-            
-            <button id="saveBtn">Apply Changes</button>
         </div>
 
         <div class="test-bench">
             <h3>Live Key Test</h3>
-            <div id="testDisplay">Press a key on your keypad to test...</div>
-            <button id="clearTestBtn">Clear Test Area</button>
+            <div id="testDisplay">Connect device and press keys to test...</div>
         </div>
 
         <div class="media-preview" id="player">
@@ -77,52 +75,33 @@
     </div>
 
     <script type="module">
-        import { connectDevice, saveKeyConfig } from './main.js';
-        import { SCAN_CODES, MODIFIERS } from './utils.js';
+        import { 
+            connectDevice, 
+            saveActiveBinding, 
+            startNewBinding, 
+            handleKeySelection,
+            deleteBinding 
+        } from './main.js';
 
-        let activeIndex = 0;
+        // Interface Listeners
+        document.getElementById('connectBtn').onclick = connectDevice;
+        document.getElementById('btn-new').onclick = startNewBinding;
+        document.getElementById('save-binding-btn').onclick = saveActiveBinding;
+        document.getElementById('btn-delete').onclick = deleteBinding;
 
-        // Populate Dropdowns from utils.js
-        const modS = document.getElementById('modSelect');
-        const keyS = document.getElementById('keySelect');
-        
-        Object.keys(MODIFIERS).forEach(m => modS.add(new Option(m, m)));
-        Object.keys(SCAN_CODES).forEach(k => keyS.add(new Option(k, k)));
-
-        // Handle Visual Key Selection
+        // Visual Key Selection
         document.querySelectorAll('.key').forEach(el => {
             el.addEventListener('click', () => {
-                activeIndex = parseInt(el.dataset.idx);
-                document.querySelectorAll('.key').forEach(k => k.classList.remove('active'));
-                el.classList.add('active');
-                document.getElementById('configPanel').classList.remove('hidden');
-                document.getElementById('editingLabel').innerText = activeIndex === 6 ? "Editing Knob" : `Editing Key ${activeIndex+1}`;
+                const idx = parseInt(el.dataset.idx);
+                handleKeySelection(idx);
             });
         });
 
-        // Event Listeners
-        document.getElementById('connectBtn').addEventListener('click', connectDevice);
-        document.getElementById('saveBtn').addEventListener('click', () => {
-            saveKeyConfig(activeIndex, modS.value, keyS.value);
-        });
-
-        // Key Test Logic
+        // Global Keyboard Listener for Recorder
         window.addEventListener('keydown', (e) => {
-            const mods = [];
-            if (e.ctrlKey) mods.push('Ctrl');
-            if (e.shiftKey) mods.push('Shift');
-            if (e.altKey) mods.push('Alt');
-            if (e.metaKey) mods.push('Win');
-            
-            const keyName = e.key === " " ? "Space" : e.key;
-            const combo = mods.length > 0 ? `${mods.join('+')}+${keyName}` : keyName;
-            
-            document.getElementById('testDisplay').innerText = `Detected: ${combo}`;
+            // This is handled inside main.js via an exported function
+            // or by checking a global state.
         });
-
-        document.getElementById('clearTestBtn').onclick = () => {
-            document.getElementById('testDisplay').innerText = "Press a key on your keypad to test...";
-        };
     </script>
 </body>
 </html>
