@@ -6,8 +6,7 @@
     <title>Smart Keypad Web Center</title>
     <link rel="stylesheet" href="./style.css">
     <style>
-        /* Embedded specific overrides can go here, 
-           but most styles should remain in style.css */
+        /* --- EMBEDDED STYLES (Overrides) --- */
         
         /* Summary Table Styling */
         .summary-section { margin-top: 40px; width: 100%; max-width: 800px; }
@@ -17,9 +16,23 @@
         
         /* Modal Styling */
         .modal {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 1000;
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%;
+            background: rgba(0,0,0,0.9); 
+            display: flex; /* Default display state */
+            align-items: center; 
+            justify-content: center; 
+            z-index: 1000;
         }
+        
+        /* CRITICAL FIX: Ensure .hidden is defined here so it works even if style.css has issues */
+        .hidden { 
+            display: none !important; 
+        }
+
         .modal-content {
             background: #1e1e1e; padding: 40px; border-radius: 15px; border: 2px solid var(--primary);
             text-align: center; width: 450px; box-shadow: 0 0 30px rgba(0,210,255,0.3);
