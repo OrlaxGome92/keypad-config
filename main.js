@@ -142,8 +142,8 @@ export async function saveActiveBinding() {
     data[0] = cmdByte;            // Byte 0: Command
     data[1] = activeKeyIndex + 1; // Byte 1: Key Index
     data[2] = 0x01;               // Byte 2: Type (Keyboard)
-    data[3] = selectedByte;       // Byte 3: Key Code
-    data[4] = 0x00;               // Byte 4: Modifiers
+    data[3] = 0x00;       // Byte 3: Key Code
+    data[4] = selectedByte;               // Byte 4: Modifiers
     
     // CALCULATE CHECKSUM
     let sum = 0;
@@ -227,4 +227,5 @@ if(testZone) testZone.addEventListener('keydown', (e) => {
     testZone.style.backgroundColor = '#333';
     setTimeout(() => testZone.style.backgroundColor = '#222', 100);
 });
+
 window.onload = refreshSummary;
