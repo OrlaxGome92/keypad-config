@@ -1,4 +1,4 @@
-/* main.js - Final Checksum Fix */
+/* main.js - Protocol Fix (Method A) */
 import { SCAN_CODES } from './utils.js';
 
 let device;
@@ -59,7 +59,6 @@ async function runDiagnostics() {
         if(details.length) logToConsole(`   > ${details.join(', ')}`, "info");
         
         // AUTO-UPDATE PACKET LENGTH
-        // If we see a Vendor Output report, grab its length and update the UI
         if (type.includes("VENDOR") && out && out.items?.[0]?.reportCount) {
              const detectedLen = out.items[0].reportCount;
              const lenInput = document.getElementById('force-length');
@@ -83,10 +82,9 @@ async function runDiagnostics() {
 // ----------------------------------------
 export async function connectDevice() {
     try {
-        const filters = [{ vendorId: 0x1189, usagePage: 0xFF00 }];
-        let devices;
-        try { devices = await navigator.hid.requestDevice({ filters }); } 
-        catch (err) { devices = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x1189 }] }); }
+        // Broad filter to catch most CH55x / SayoDevices
+        const filters = [{ vendorId: 0x1189 }];
+        const devices = await navigator.hid.requestDevice({ filters });
         
         device = devices[0];
         if (!device) return;
@@ -95,19 +93,17 @@ export async function connectDevice() {
         logToConsole(`Device Opened: ${device.productName}`, 'info');
         runDiagnostics();
 
-        // Sync detected values to UI
+        // Sync detected values to UI defaults
         const writable = device.collections.find(c => c.usagePage === 0xFF00) || device.collections[0];
         if (writable) {
-            let defId = 0, defType = 'output';
-            if (writable.outputReports?.length > 0) {
-                defType = 'output';
-                defId = writable.outputReports[0].reportId;
-            } else if (writable.featureReports?.length > 0) {
-                defType = 'feature';
-                defId = writable.featureReports[0].reportId;
-            }
+            let defId = 0;
+            if (writable.outputReports?.length > 0) defId = writable.outputReports[0].reportId;
+            else if (writable.featureReports?.length > 0) defId = writable.featureReports[0].reportId;
+            
+            // Default to ID 3 if 0 was detected (common issue)
+            if (defId === 0) defId = 3;
+            
             document.getElementById('force-report-id').value = defId;
-            document.getElementById('force-report-type').value = defType;
         }
 
         document.getElementById('status').innerText = "Status: Connected";
@@ -122,46 +118,43 @@ export async function connectDevice() {
 }
 
 // ----------------------------------------
-// SAVE (DYNAMIC CHECKSUM)
+// SAVE (FIXED PROTOCOL - METHOD A)
 // ----------------------------------------
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
     
     const selectedByte = parseInt(fSelector.value);
     
-    // Read Settings
+    // Read Settings from Dashboard
     const useType = document.getElementById('force-report-type').value;
     const useId = parseInt(document.getElementById('force-report-id').value);
-    const useLen = parseInt(document.getElementById('force-length').value) || 8; // CRITICAL
-    const cmdByte = parseInt(document.getElementById('force-cmd').value, 16); 
-    const checksumMode = document.getElementById('force-checksum').value;
+    const useLen = parseInt(document.getElementById('force-length').value) || 64; 
 
-    // Construct Packet of EXACT Length
+    // --- PACKET CONSTRUCTION (Standard 0x1189) ---
+    // Protocol: [KeyIndex, Type, Modifier, KeyCode, Padding, Padding, Padding, Checksum]
+    // The Command Byte (0xA1) is REMOVED. The Report ID serves as the command.
+
     const data = new Uint8Array(useLen).fill(0);
     
-    data[0] = cmdByte;            // Byte 0: Command
-    data[1] = activeKeyIndex + 1; // Byte 1: Key Index
-    data[2] = 0x01;               // Byte 2: Type (Keyboard)
-    data[3] = 0x00;       // Byte 3: Key Code
-    data[4] = selectedByte;               // Byte 4: Modifiers
+    data[0] = activeKeyIndex + 1; // Byte 0: Key Index (1-based)
+    data[1] = 0x01;               // Byte 1: Type (0x01 = Keyboard)
+    data[2] = 0x00;               // Byte 2: Modifiers (0x00)
+    data[3] = selectedByte;       // Byte 3: Key Code (e.g. 0x68 for F13)
     
-    // CALCULATE CHECKSUM
-    let sum = 0;
-    if (checksumMode === 'id_sum') sum += useId;
+    // Bytes 4, 5, 6 are Padding (0x00)
 
-    // Sum ALL bytes up to the last one (0 to Length-2)
-    for(let i=0; i < useLen - 1; i++) {
+    // Calculate Checksum (Sum of bytes 0-6)
+    // Placed at Byte 7
+    let sum = 0;
+    for(let i = 0; i < 7; i++) {
         sum += data[i];
     }
-    
-    // Place Checksum at the VERY END of the packet (Byte Length-1)
-    if (checksumMode !== 'none') {
-        data[useLen - 1] = sum & 0xFF; 
-    }
+    data[7] = sum & 0xFF; 
     
     logToConsole(`Sending [${data.slice(0,8).join(',')}...] (${useLen} bytes) to ID:${useId}`, 'info');
 
     try {
+        // Note: useId is passed as the first argument, NOT part of the data array
         const sendPromise = (useType === 'feature') 
             ? device.sendFeatureReport(useId, data)
             : device.sendReport(useId, data);
@@ -227,5 +220,4 @@ if(testZone) testZone.addEventListener('keydown', (e) => {
     testZone.style.backgroundColor = '#333';
     setTimeout(() => testZone.style.backgroundColor = '#222', 100);
 });
-
 window.onload = refreshSummary;
