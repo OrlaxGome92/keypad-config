@@ -4,10 +4,9 @@ import { SCAN_CODES } from './utils.js';
 let device;
 let activeKeyIndex = null;
 
-// Hardware Protocol Info
+// Hardware Protocol Info (Defaults)
 let reportType = 'output'; 
 let hwReportId = 0;
-let hwReportLen = 8; 
 
 // Local Metadata Storage
 let keyMetadata = JSON.parse(localStorage.getItem('keypad_metadata')) || {};
@@ -68,14 +67,18 @@ async function runDiagnostics() {
     if (!hasWriteCabability) {
         logToConsole("⚠️ WARNING: READ-ONLY INTERFACE DETECTED", "err");
         logToConsole("👉 Please click 'Connect' again and select the OTHER device in the list!", "err");
-        alert("Wrong Interface Selected!\n\nPlease click Connect again and pick the OTHER 'Mini Keyboard'.");
+        alert("Wrong Interface Selected!\n\nPlease click Connect again and pick the OTHER 'Mini Keyboard' in the list.");
     }
 }
 
-// 2. Connect Device (With Filter Update)
+// 2. Connect Device (With Strict Filter)
 export async function connectDevice() {
     try {
-        const filters = [{ vendorId: 0x1189, usagePage: 0xFF00 }];
+        // FILTER UPDATE: Specifically ask for Usage Page 0xFF00.
+        // This is critical for Windows to show the correct interface.
+        const filters = [
+            { vendorId: 0x1189, usagePage: 0xFF00 } 
+        ];
 
         let devices;
         try {
@@ -94,6 +97,7 @@ export async function connectDevice() {
         runDiagnostics();
 
         // --- PROTOCOL DETECTION ---
+        // Find the collection that supports writing (Output or Feature)
         const writableCollection = device.collections.find(c => 
             (c.outputReports && c.outputReports.length > 0) || 
             (c.featureReports && c.featureReports.length > 0) ||
@@ -101,6 +105,7 @@ export async function connectDevice() {
         );
 
         if (writableCollection) {
+            // Priority: Output Report (since we confirmed ID 3 works)
             if (writableCollection.outputReports?.length > 0) {
                 reportType = 'output';
                 hwReportId = writableCollection.outputReports[0].reportId;
@@ -114,10 +119,13 @@ export async function connectDevice() {
             
             logToConsole(`✅ Detected Protocol: ${reportType.toUpperCase()} | ID: ${hwReportId}`, 'tx');
             
-            // --- SYNC DETECTED VALUES TO UI ---
-            // This ensures the "Save" function uses the correct ID automatically
-            document.getElementById('force-report-id').value = hwReportId;
-            document.getElementById('force-report-type').value = reportType;
+            // --- SYNC TO UI ---
+            // Auto-fill the Debug Panel settings so "Save" works automatically
+            const idInput = document.getElementById('force-report-id');
+            const typeInput = document.getElementById('force-report-type');
+            
+            if(idInput) idInput.value = hwReportId;
+            if(typeInput) typeInput.value = reportType;
             
         } else {
             logToConsole(`⚠️ No descriptor found. Defaulting to Output ID: 0`, 'err');
@@ -138,27 +146,32 @@ export async function connectDevice() {
 export function handleKeySelection(idx) {
     activeKeyIndex = idx; 
     
+    // UI Highlight
     document.querySelectorAll('.key').forEach(k => k.classList.remove('active'));
     document.getElementById(`v-${idx}`).classList.add('active');
     document.getElementById('editor-container').classList.remove('hidden');
     document.getElementById('editingLabel').innerText = `Editing Key ${idx + 1}`;
     
+    // Logic: Default to F13+idx if not set
     const defaultByte = 0x68 + idx; // F13 + idx
     const savedByte = keyMetadata[idx] || defaultByte;
+    
     fSelector.value = savedByte;
 }
 
-// 4. SAVE (Universal Method)
+// 4. SAVE (Robust Method)
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
     
     const selectedByte = parseInt(fSelector.value);
     
-    // Read from UI (which was auto-updated on connection)
+    // Read from Debug Panel (which is now Auto-Configured)
     const useType = document.getElementById('force-report-type').value;
     const useId = parseInt(document.getElementById('force-report-id').value);
+    // CRITICAL: Force length to 8 bytes to prevent hanging
     const useLen = parseInt(document.getElementById('force-length').value) || 8;
 
+    // Construct Packet
     const data = new Uint8Array(useLen).fill(0);
     
     // Standard Packet for VID 0x1189
@@ -175,6 +188,7 @@ export async function saveActiveBinding() {
             ? device.sendFeatureReport(useId, data)
             : device.sendReport(useId, data);
 
+        // Timeout to prevent browser freeze
         await Promise.race([
             sendPromise,
             new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2000))
@@ -182,8 +196,10 @@ export async function saveActiveBinding() {
         
         logToConsole(`✅ Packet Sent Successfully`, 'tx');
 
+        // Update Metadata
         keyMetadata[activeKeyIndex] = selectedByte;
         localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
+        
         refreshSummary();
         showSuccess();
         
@@ -224,6 +240,7 @@ function refreshSummary() {
 // INPUT TESTER & EVENTS
 // ----------------------------------------
 const testZone = document.getElementById('key-test-zone');
+
 if (testZone) {
     testZone.addEventListener('keydown', (e) => {
         e.preventDefault(); 
