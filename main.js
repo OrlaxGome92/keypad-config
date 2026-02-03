@@ -72,11 +72,25 @@ async function runDiagnostics() {
     }
 }
 
-// 2. Connect Device & Auto-Detect Report Type
+// 2. Connect Device (With Filter Update)
 export async function connectDevice() {
     try {
-        // Broad filter to ensure we see ALL interfaces
-        const devices = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x1189 }] });
+        // FILTER UPDATE: Specifically ask for Usage Page 0xFF00.
+        // This forces Windows to show the "Configuration" interface 
+        // instead of just the "Knob/Mouse" interface.
+        const filters = [
+            { vendorId: 0x1189, usagePage: 0xFF00 } 
+        ];
+
+        let devices;
+        try {
+            // Try Strict Filter First (Best for Windows)
+            devices = await navigator.hid.requestDevice({ filters });
+        } catch (err) {
+            // Fallback: If strict fails, try generic (Best for Mac/Linux)
+            console.warn("Strict filter failed, trying generic...", err);
+            devices = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x1189 }] });
+        }
         
         device = devices[0];
         if (!device) return;
@@ -89,27 +103,31 @@ export async function connectDevice() {
         runDiagnostics();
 
         // --- PROTOCOL DETECTION ---
-        // Look for any collection that allows Writing (Output or Feature)
+        // Look for the writable collection
         const writableCollection = device.collections.find(c => 
             (c.outputReports && c.outputReports.length > 0) || 
-            (c.featureReports && c.featureReports.length > 0)
+            (c.featureReports && c.featureReports.length > 0) ||
+            c.usagePage === 0xFF00 // Trust the vendor page even if reports look empty
         );
 
         if (writableCollection) {
+            // Default to Feature report for 0xFF00 (Standard for these chips)
             if (writableCollection.featureReports?.length > 0) {
                 reportType = 'feature';
                 hwReportId = writableCollection.featureReports[0].reportId;
-                logToConsole(`✅ Detected FEATURE Protocol. ID: ${hwReportId}`, 'tx');
-            } else {
+            } else if (writableCollection.outputReports?.length > 0) {
                 reportType = 'output';
                 hwReportId = writableCollection.outputReports[0].reportId;
-                logToConsole(`✅ Detected OUTPUT Protocol. ID: ${hwReportId}`, 'tx');
+            } else {
+                // If reports are missing from descriptor, assume Output ID 0
+                reportType = 'output'; 
+                hwReportId = 0; 
             }
+            logToConsole(`✅ Protocol: ${reportType.toUpperCase()} | ID: ${hwReportId}`, 'tx');
         } else {
-            // Default fallback if detection fails (so Manual Overrides still work)
             reportType = 'output';
             hwReportId = 0; 
-            logToConsole(`⚠️ No Writable Protocol detected automatically.`, 'err');
+            logToConsole(`⚠️ No descriptor found. Defaulting to Output ID: 0`, 'err');
         }
 
         document.getElementById('status').innerText = "Status: Connected";
