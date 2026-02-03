@@ -1,6 +1,7 @@
 /* utils.js */
 
-// HID Usage Tables for Keyboard/Keypad
+// HID Usage Tables for Keyboard/Keypad (Usage Page 0x07)
+// These map standard browser KeyboardEvent.code values to HID Usage IDs
 export const SCAN_CODES = {
     // Letters
     "KeyA": 0x04, "KeyB": 0x05, "KeyC": 0x06, "KeyD": 0x07, "KeyE": 0x08,
@@ -21,13 +22,19 @@ export const SCAN_CODES = {
 
     // Common Nav
     "Enter": 0x28, "Escape": 0x29, "Backspace": 0x2A, "Tab": 0x2B, "Space": 0x2C,
-    "ArrowRight": 0x4F, "ArrowLeft": 0x50, "ArrowDown": 0x51, "ArrowUp": 0x52
+    "ArrowRight": 0x4F, "ArrowLeft": 0x50, "ArrowDown": 0x51, "ArrowUp": 0x52,
+    "Insert": 0x49, "Delete": 0x4C, "Home": 0x4A, "End": 0x4D, "PageUp": 0x4B, "PageDown": 0x4E
 };
 
+// Modifier Bitmask (For Byte 4 of the report)
 export const MODIFIERS = {
     "None": 0x00,
-    "Ctrl": 0x01,
-    "Shift": 0x02,
-    "Alt": 0x04,
-    "Win": 0x08
+    "Ctrl": 0x01,  // Left Control
+    "Shift": 0x02, // Left Shift
+    "Alt": 0x04,   // Left Alt
+    "Win": 0x08,   // Left GUI (Windows/Command)
+    "RCtrl": 0x10, // Right Control
+    "RShift": 0x20,// Right Shift
+    "RAlt": 0x40,  // Right Alt
+    "RWin": 0x80   // Right GUI
 };

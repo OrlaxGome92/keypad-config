@@ -21,6 +21,23 @@ Object.entries(SCAN_CODES).forEach(([keyName, byte]) => {
     }
 });
 
+// ----------------------------------------
+// NEW: DEBUG LOGGING SYSTEM
+// ----------------------------------------
+function logToConsole(msg, type = 'info') {
+    const consoleDiv = document.getElementById('console-log');
+    if (!consoleDiv) return;
+
+    const entry = document.createElement('div');
+    entry.classList.add('log-entry', `log-${type}`);
+    
+    const time = new Date().toLocaleTimeString().split(' ')[0];
+    entry.innerText = `[${time}] ${msg}`;
+    
+    consoleDiv.appendChild(entry);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight; // Auto-scroll
+}
+
 // 2. Connect Device & Auto-Detect Report Type
 export async function connectDevice() {
     try {
@@ -34,6 +51,7 @@ export async function connectDevice() {
         if (!device.opened) await device.open();
         
         console.log("Device Info:", device.collections);
+        logToConsole(`Device Opened: ${device.productName}`, 'info');
 
         // --- PROTOCOL DETECTION ---
         // Search for the config collection (usually UsagePage 0xFF00 or Generic Desktop)
@@ -46,13 +64,13 @@ export async function connectDevice() {
                 hwReportId = collection.featureReports[0].reportId;
                 const item = collection.featureReports[0].items?.[0];
                 if (item) hwReportLen = (item.reportCount * item.reportSize) / 8;
-                console.log(`Detected FEATURE Protocol. ID: ${hwReportId}, Len: ${hwReportLen}`);
+                logToConsole(`Detected FEATURE Protocol. ID: ${hwReportId}, Len: ${hwReportLen}`, 'info');
             } else if (collection.outputReports?.length > 0) {
                 reportType = 'output';
                 hwReportId = collection.outputReports[0].reportId;
                 const item = collection.outputReports[0].items?.[0];
                 if (item) hwReportLen = (item.reportCount * item.reportSize) / 8;
-                console.log(`Detected OUTPUT Protocol. ID: ${hwReportId}, Len: ${hwReportLen}`);
+                logToConsole(`Detected OUTPUT Protocol. ID: ${hwReportId}, Len: ${hwReportLen}`, 'info');
             }
         }
 
@@ -63,6 +81,7 @@ export async function connectDevice() {
 
     } catch (e) {
         console.error(e);
+        logToConsole(`Connection Failed: ${e.message}`, 'err');
         alert(`Connection Failed: ${e.message}`);
     }
 }
@@ -84,13 +103,22 @@ export function handleKeySelection(idx) {
     fSelector.value = savedByte;
 }
 
-// 4. SAVE (Universal Method)
+// 4. SAVE (Universal Method with Debug Overrides)
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
     
     const selectedByte = parseInt(fSelector.value);
     const selectedText = fSelector.options[fSelector.selectedIndex].text;
     
+    // Check for Manual Overrides in Debug Panel
+    const forceType = document.getElementById('force-report-type').value;
+    const forceIdVal = document.getElementById('force-report-id').value;
+    const forceId = parseInt(forceIdVal);
+
+    // Determine Logic
+    const useType = (forceType !== 'auto') ? forceType : reportType;
+    const useId = (forceIdVal !== "0" && !isNaN(forceId)) ? forceId : hwReportId;
+
     // Construct Packet
     // Standard Format for VID 1189: [Cmd, Index, Type, Key, Mod, Pad...]
     // Packet length must match hwReportLen (usually 8 or 64)
@@ -102,16 +130,19 @@ export async function saveActiveBinding() {
     data[3] = selectedByte;       // Key Code
     data[4] = 0x00;               // Modifiers (None)
     
+    logToConsole(`Preparing Packet: [${data.join(', ')}]`, 'info');
+    logToConsole(`Target: ${useType.toUpperCase()} | ReportID: ${useId}`, 'info');
+
     try {
-        console.log(`Sending (${reportType.toUpperCase()} ID:${hwReportId}):`, data);
-        
-        // Try the detected method first
-        if (reportType === 'feature') {
-            await device.sendFeatureReport(hwReportId, data);
+        // Try the detected/selected method
+        if (useType === 'feature') {
+            await device.sendFeatureReport(useId, data);
         } else {
-            await device.sendReport(hwReportId, data);
+            await device.sendReport(useId, data);
         }
         
+        logToConsole(`✅ Packet Sent Successfully`, 'tx');
+
         // Save to Metadata
         keyMetadata[activeKeyIndex] = selectedByte;
         localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
@@ -120,20 +151,29 @@ export async function saveActiveBinding() {
         showSuccess();
         
     } catch (e) {
+        logToConsole(`❌ Primary send failed: ${e.message}`, 'err');
         console.warn("Primary send failed, trying fallback...", e);
-        try {
-            // Fallback: If Feature failed, try Output (or vice versa)
-            if (reportType === 'feature') await device.sendReport(hwReportId, data);
-            else await device.sendFeatureReport(hwReportId, data);
-            
-            // If fallback worked, update metadata
-            keyMetadata[activeKeyIndex] = selectedByte;
-            localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
-            refreshSummary();
-            showSuccess();
-        } catch (e2) {
-            console.error(e2);
-            alert("Update Failed. Re-plug device and try again.");
+        
+        // Only attempt fallback if we are in Auto mode (don't override user manual choice)
+        if (forceType === 'auto') {
+            try {
+                logToConsole(`⚠️ Attempting Fallback (swapping report type)...`, 'info');
+                // Fallback: If Feature failed, try Output (or vice versa)
+                if (reportType === 'feature') await device.sendReport(hwReportId, data);
+                else await device.sendFeatureReport(hwReportId, data);
+                
+                logToConsole(`✅ Fallback Sent Successfully`, 'tx');
+
+                // If fallback worked, update metadata
+                keyMetadata[activeKeyIndex] = selectedByte;
+                localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
+                refreshSummary();
+                showSuccess();
+            } catch (e2) {
+                console.error(e2);
+                logToConsole(`❌ Fallback Failed: ${e2.message}`, 'err');
+                alert("Update Failed. Check Log for details.");
+            }
         }
     }
 }
@@ -167,9 +207,36 @@ function refreshSummary() {
     });
 }
 
+// ----------------------------------------
+// NEW: INPUT TESTER LOGIC
+// ----------------------------------------
+const testZone = document.getElementById('key-test-zone');
+
+if (testZone) {
+    testZone.addEventListener('keydown', (e) => {
+        e.preventDefault(); // Stop browser actions (like F5 refresh or scrolling)
+        
+        document.getElementById('last-key-display').innerText = `${e.code}`;
+        document.getElementById('d-code').innerText = e.code;
+        document.getElementById('d-key').innerText = e.key;
+        document.getElementById('d-which').innerText = e.which; // Deprecated but useful for legacy checks
+        
+        // Flash the box to show activity
+        testZone.style.backgroundColor = '#333';
+        setTimeout(() => testZone.style.backgroundColor = '#222', 100);
+    });
+}
+
 // Bindings
 document.getElementById('connectBtn').onclick = connectDevice;
 document.getElementById('save-binding-btn').onclick = saveActiveBinding;
 document.querySelectorAll('.key').forEach(k => k.onclick = () => handleKeySelection(parseInt(k.dataset.idx)));
+
+// Debug Bindings
+const clearBtn = document.getElementById('clearLogBtn');
+if(clearBtn) clearBtn.onclick = () => { document.getElementById('console-log').innerHTML = ''; };
+
+const resendBtn = document.getElementById('send-test-btn');
+if(resendBtn) resendBtn.onclick = saveActiveBinding;
 
 window.onload = refreshSummary;

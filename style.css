@@ -165,3 +165,119 @@ button:hover { opacity: 0.9; }
 .hidden { display: none !important; }
 
 .danger { background: #ff4444; color: white; }
+
+/* --- ENGINEERING / DEBUG DASHBOARD STYLES --- */
+
+.debug-panel {
+    margin-top: 50px;
+    width: 100%;
+    max-width: 800px;
+    background: #0d0d0d;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 20px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    box-sizing: border-box;
+}
+
+.debug-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #333;
+    padding-bottom: 10px;
+}
+
+.test-area {
+    background: #111;
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+    border: 1px dashed #444;
+}
+
+.test-box {
+    width: 100%;
+    height: 80px;
+    background: #222;
+    color: #888;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: text;
+    border-radius: 4px;
+    outline: none;
+    transition: 0.2s;
+    user-select: none;
+}
+
+.test-box:focus {
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    background: #1a1a1a;
+}
+
+#last-key-display {
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: #fff;
+    margin-top: 5px;
+}
+
+.key-details {
+    display: flex;
+    gap: 20px;
+    margin-top: 10px;
+    font-size: 0.85rem;
+    color: #aaa;
+}
+
+.key-details b { color: var(--primary); }
+
+.log-area {
+    background: #000;
+    height: 200px;
+    overflow-y: auto;
+    border: 1px solid #333;
+    padding: 10px;
+    font-size: 0.8rem;
+    color: #ccc;
+    font-family: monospace;
+}
+
+.log-entry { margin-bottom: 4px; border-bottom: 1px solid #1a1a1a; padding-bottom: 2px; }
+.log-tx { color: #00ff00; }  /* Transmit green */
+.log-err { color: #ff4444; } /* Error red */
+.log-info { color: #00d2ff; } /* Info blue */
+
+.manual-controls {
+    margin-top: 15px;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    background: #1a1a1a;
+    padding: 10px;
+    border-radius: 6px;
+}
+
+.manual-controls label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #ccc;
+    font-size: 0.9rem;
+}
+
+.secondary-btn {
+    background: #444;
+    color: white;
+    font-size: 0.8rem;
+    padding: 8px 15px;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+    width: auto;
+}
+.secondary-btn:hover { background: #555; }
