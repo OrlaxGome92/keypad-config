@@ -6,6 +6,9 @@
     <title>Smart Keypad Web Center</title>
     <link rel="stylesheet" href="./style.css">
     <style>
+        /* Embedded specific overrides can go here, 
+           but most styles should remain in style.css */
+        
         /* Summary Table Styling */
         .summary-section { margin-top: 40px; width: 100%; max-width: 800px; }
         table { width: 100%; border-collapse: collapse; background: #1e1e1e; border-radius: 8px; overflow: hidden; }
@@ -36,7 +39,7 @@
         <div id="layersContainer">
             <div class="layer-item active">Base Layer</div>
         </div>
-        <button id="addLayerBtn">+ Add Layer</button>
+        <button id="addLayerBtn" style="opacity: 0.5; cursor: not-allowed;">+ Add Layer</button>
         <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
         <button id="folderBtn">📁 Select Media Folder</button>
     </div>
@@ -65,24 +68,32 @@
                 <h3 id="editingLabel">Editing Key</h3>
                 
                 <div class="control-group">
-                    <label>Hardware Trigger (Select F-Key):</label>
+                    <label>1. Hardware Trigger (Internal F-Key):</label>
                     <select id="fkey-selector">
                         </select>
                 </div>
 
                 <div class="control-group">
-                    <label>Shortcut Command:</label>
-                    <button id="btn-record-popup" style="background: #333; border: 1px solid var(--primary); color: var(--primary);">⏺ Record Key Combo</button>
-                    <div id="active-shortcut-display" style="margin-top: 10px; font-weight: bold; color: var(--primary);">No shortcut recorded</div>
+                    <label>2. Shortcut Command:</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button id="btn-record-popup" style="background: #333; border: 1px solid var(--primary); color: var(--primary); flex: 1;">
+                            ⏺ Record Key Combo
+                        </button>
+                        <div id="active-shortcut-display" style="flex: 1; font-weight: bold; color: var(--primary); padding: 10px; background: #000; border-radius: 4px; text-align: center; border: 1px solid #444;">
+                            None
+                        </div>
+                    </div>
                 </div>
 
+                <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
+
                 <div class="control-group">
-                    <label>Binding Name:</label>
+                    <label>3. Binding Name:</label>
                     <input type="text" id="bind-name" placeholder="e.g. Photoshop Copy">
                 </div>
 
                 <div class="control-group">
-                    <label>Description:</label>
+                    <label>4. Description:</label>
                     <textarea id="bind-desc" rows="2" placeholder="What does this do?"></textarea>
                 </div>
 
@@ -115,8 +126,8 @@
             <p>Perform the key combination on your keyboard now.</p>
             <div id="modal-recorder-display">Listening...</div>
             <div class="modal-actions">
-                <button id="modal-save">Confirm & Save</button>
-                <button id="modal-reset" class="btn-danger">Reset</button>
+                <button id="modal-save">✅ Confirm & Save</button>
+                <button id="modal-reset" class="btn-danger">↺ Reset</button>
                 <button id="modal-cancel" class="btn-secondary">Cancel</button>
             </div>
         </div>
