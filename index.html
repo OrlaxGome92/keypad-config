@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Smart Keypad Web Center</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="sidebar" id="layerList">
+        <h3>Layers</h3>
+        <div id="layersContainer">
+            <div class="layer-item active" onclick="switchLayer(0)">Base Layer</div>
+        </div>
+        <button onclick="addLayer()">+ Add Layer</button>
+        <hr>
+        <button onclick="selectMediaFolder()">📁 Select Media Folder</button>
+    </div>
+
+    <div class="workspace">
+        <header>
+            <h2>Smart Keypad Center</h2>
+            <button id="connBtn">Connect Keypad</button>
+            <span id="status">Disconnected</span>
+        </header>
+        
+        <div class="keypad-visual">
+            <div class="key knob" id="v-6" data-idx="6">Knob</div>
+            <div class="key" id="v-0" data-idx="0">K1</div>
+            <div class="key" id="v-1" data-idx="1">K2</div>
+            <div class="key" id="v-2" data-idx="2">K3</div>
+            <div class="key" id="v-3" data-idx="3">K4</div>
+            <div class="key" id="v-4" data-idx="4">K5</div>
+            <div class="key" id="v-5" data-idx="5">K6</div>
+        </div>
+
+        <div id="configPanel" class="hidden">
+            <h3 id="editingLabel">Editing Key</h3>
+            <label>Action Type:</label>
+            <select id="actionType">
+                <option value="hardware">Hardware Key (On-Board)</option>
+                <option value="macro">Software Macro (Browser)</option>
+            </select>
+            
+            <label>Modifier:</label>
+            <select id="modSelect"></select>
+            
+            <label>Key/Action:</label>
+            <select id="keySelect"></select>
+            
+            <button id="saveBtn">Apply to Device</button>
+        </div>
+
+        <div class="media-preview" id="player">
+            <img src="" id="slide" class="hidden">
+            <p id="mediaStatus">No media selected</p>
+        </div>
+    </div>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>
