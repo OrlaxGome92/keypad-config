@@ -1,73 +1,74 @@
+/* main.js */
 import { SCAN_CODES, MODIFIERS } from './utils.js';
 
 let device;
 let activeKeyIndex = null;
+
+// Store the configuration to be sent
+let currentPayload = {
+    mod: 0,
+    keyByte: 0
+};
+
+// Temp variables for the recorder
 let tempMod = 0;
-let tempKey = 0;
+let tempKeyByte = 0;
 let tempText = "";
 
-// Dynamic Hardware Settings (Detected on Connect)
 let hwReportId = 0;
 let hwReportLen = 64;
 
 let keyMetadata = JSON.parse(localStorage.getItem('sayo_metadata')) || {};
 
-// 1. Initialize Dropdown
+// 1. Initialize Dropdown with F13-F24
 const fSelector = document.getElementById('fkey-selector');
-Object.keys(SCAN_CODES).forEach(fKey => {
-    const keyNum = parseInt(fKey.replace('F', ''));
-    if (keyNum >= 13 && keyNum <= 24) {
-        fSelector.add(new Option(fKey, fKey));
+Object.entries(SCAN_CODES).forEach(([keyName, byte]) => {
+    // Only show F13-F24 in the dropdown list
+    if (keyName.startsWith('F') && parseInt(keyName.substring(1)) >= 13) {
+        fSelector.add(new Option(keyName, byte)); // Value is the Byte directly
     }
 });
 
+// EVENT: Dropdown Changed manually
+fSelector.addEventListener('change', (e) => {
+    // If user picks from dropdown, set that as the key
+    currentPayload.keyByte = parseInt(e.target.value);
+    currentPayload.mod = 0; // Reset modifiers for pure F-key
+    
+    // Update UI to reflect manual choice
+    document.getElementById('active-shortcut-display').innerText = e.target.options[e.target.selectedIndex].text;
+});
+
 /**
- * 2. Hardware Connection & Auto-Detection
+ * 2. Connect & Auto-Detect
  */
 export async function connectDevice() {
     try {
         const filters = [{ vendorId: 0x1189, productId: 0x8890 }];
         const devices = await navigator.hid.requestDevice({ filters });
         
-        // Find Vendor Interface (Usage Page 0xFF00)
         device = devices.find(d => 
             d.collections.some(c => c.usagePage === 0xFF00 || c.usagePage === 0xFF60)
         );
 
-        if (!device) {
-            alert("Security Error: Please select the 'HID-compliant device' or 'Vendor-defined device' (NOT 'Keyboard').");
-            return;
-        }
+        if (!device) return alert("Please select the 'HID-compliant device' (NOT Keyboard).");
 
         if (!device.opened) await device.open();
         
-        console.log("Device Connected:", device.productName);
-        
-        // --- SMART DETECT START ---
-        // Inspect the device to find the correct Report ID and Length
+        // --- SMART DETECT ---
         const configCollection = device.collections.find(c => c.usagePage === 0xFF00 || c.usagePage === 0xFF60);
-        
-        if (configCollection && configCollection.outputReports && configCollection.outputReports.length > 0) {
-            // Grab the first available Output Report
+        if (configCollection?.outputReports?.length > 0) {
             const report = configCollection.outputReports[0];
             hwReportId = report.reportId;
-            
-            // Calculate length (count * size_in_bits / 8)
-            // If items is empty or complex, fallback to 64
-            if (report.items && report.items.length > 0) {
+            if (report.items?.length > 0) {
                 const item = report.items[0];
                 hwReportLen = (item.reportCount * item.reportSize) / 8;
             }
-            
-            console.log(`Auto-Detected: Report ID=${hwReportId}, Length=${hwReportLen}`);
         } else {
-            // Fallback if detection fails (common for some Sayo versions)
-            console.warn("Auto-Detect failed. Defaulting to ID 1 / Len 64");
-            hwReportId = 1; 
-            hwReportLen = 64;
+            hwReportId = 1; // Fallback
         }
-        // --- SMART DETECT END ---
-
+        
+        console.log(`Connected. Target: ID=${hwReportId}, Len=${hwReportLen}`);
         document.getElementById('status').innerText = "Status: Connected";
         document.getElementById('status').style.color = "#00d2ff";
         document.getElementById('connectBtn').style.display = 'none';
@@ -80,7 +81,7 @@ export async function connectDevice() {
 }
 
 /**
- * 3. Key Selection
+ * 3. Handle Key Selection (Clicking a visual key)
  */
 export function handleKeySelection(idx) {
     activeKeyIndex = idx;
@@ -90,20 +91,18 @@ export function handleKeySelection(idx) {
     document.getElementById('editor-container').classList.remove('hidden');
     document.getElementById('editingLabel').innerText = `Editing Key ${idx + 1}`;
     
-    const defaultFKey = `F${13 + idx}`;
-    const data = keyMetadata[idx] || { name: "", desc: "", shortcutText: "None", fKey: defaultFKey };
+    const data = keyMetadata[idx] || { name: "", desc: "", shortcutText: "None" };
     
     document.getElementById('bind-name').value = data.name;
     document.getElementById('bind-desc').value = data.desc;
     document.getElementById('active-shortcut-display').innerText = data.shortcutText;
     
-    if (SCAN_CODES[data.fKey]) {
-        document.getElementById('fkey-selector').value = data.fKey;
-    }
+    // Reset payload to 0 until they record/select something new
+    currentPayload = { mod: 0, keyByte: 0 };
 }
 
 /**
- * 4. Modal Recording
+ * 4. Recording Logic
  */
 const modal = document.getElementById('record-modal');
 const recorderDisplay = document.getElementById('modal-recorder-display');
@@ -111,15 +110,16 @@ const recorderDisplay = document.getElementById('modal-recorder-display');
 export function openRecordModal() {
     modal.classList.remove('hidden');
     tempMod = 0;
+    tempKeyByte = 0; // Reset temp
     tempText = "Listening...";
     recorderDisplay.innerText = tempText;
-    recorderDisplay.style.color = "#666";
 }
 
 window.addEventListener('keydown', (e) => {
     if (modal.classList.contains('hidden')) return;
     e.preventDefault();
 
+    // 1. Calculate Modifiers
     tempMod = (e.ctrlKey ? 0x01 : 0) | (e.shiftKey ? 0x02 : 0) | (e.altKey ? 0x04 : 0);
     
     const mods = [];
@@ -127,104 +127,104 @@ window.addEventListener('keydown', (e) => {
     if (e.shiftKey) mods.push("Shift");
     if (e.altKey) mods.push("Alt");
     
-    if (e.key !== 'Control' && e.key !== 'Shift' && e.key !== 'Alt') {
-        tempText = (mods.length > 0 ? mods.join('+') + '+' : '') + e.key.toUpperCase();
-        recorderDisplay.innerText = tempText;
-        recorderDisplay.style.color = "#00d2ff";
+    // 2. Identify the Main Key (if it's not a modifier)
+    if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
+        // Look up the mapping in utils.js
+        const code = SCAN_CODES[e.code];
+        
+        if (code) {
+            tempKeyByte = code; // Success: Found the HEX code for this key
+            const keyLabel = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+            tempText = (mods.length > 0 ? mods.join('+') + '+' : '') + keyLabel;
+            
+            recorderDisplay.innerText = tempText;
+            recorderDisplay.style.color = "#00d2ff";
+        } else {
+            recorderDisplay.innerText = "Unknown Key: " + e.code;
+            recorderDisplay.style.color = "orange";
+        }
     } else {
+        // Just modifiers displayed so far
         recorderDisplay.innerText = mods.join('+') + "...";
     }
 });
 
 document.getElementById('modal-save').onclick = () => {
+    // Commit temp recording to the actual payload
+    currentPayload.mod = tempMod;
+    currentPayload.keyByte = tempKeyByte;
+    
     document.getElementById('active-shortcut-display').innerText = tempText;
     modal.classList.add('hidden');
 };
+
 document.getElementById('modal-reset').onclick = () => {
     tempMod = 0;
-    tempText = "Listening...";
-    recorderDisplay.innerText = tempText;
-    recorderDisplay.style.color = "#666";
+    tempKeyByte = 0;
+    recorderDisplay.innerText = "Listening...";
 };
 document.getElementById('modal-cancel').onclick = () => modal.classList.add('hidden');
 
 /**
- * 5. Save Logic (Using Detected ID)
+ * 5. Save To Hardware
  */
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
-    if (activeKeyIndex === null) return alert("Select a key!");
-
-    const fKeyName = document.getElementById('fkey-selector').value;
-    const hardwareKeyByte = SCAN_CODES[fKeyName];
-    const name = document.getElementById('bind-name').value;
-    const desc = document.getElementById('bind-desc').value;
-    const shortcutText = document.getElementById('active-shortcut-display').innerText;
-
-    // Create Report Buffer of EXACTLY the detected length
-    const report = new Uint8Array(hwReportLen).fill(0);
     
-    // Fill SayoDevice Packet Structure
-    // Note: We do NOT put the Report ID inside the data array for sendReport()
-    report[0] = 0x03;            // Command ID
-    report[1] = activeKeyIndex;  // Key Index
-    report[2] = 0x11;            // Action: HID Key
-    report[3] = 0x01;            // Modifier 1
-    report[4] = 0x01;            // Modifier 2
-    report[5] = tempMod;         // Mods
-    report[6] = hardwareKeyByte; // Key Code
+    // Validation: Did we actually select/record a key?
+    // If the byte is 0, check if the dropdown has a fallback
+    if (currentPayload.keyByte === 0) {
+        const dropdownVal = parseInt(document.getElementById('fkey-selector').value);
+        if (dropdownVal) {
+             currentPayload.keyByte = dropdownVal;
+        } else {
+             return alert("Please select an F-Key or Record a shortcut first.");
+        }
+    }
+
+    const report = new Uint8Array(hwReportLen).fill(0);
+    report[0] = 0x03;             // Command
+    report[1] = activeKeyIndex;   // Key Index
+    report[2] = 0x11;             // Type: HID
+    report[3] = 0x01;             // Mod 1
+    report[4] = 0x01;             // Mod 2
+    report[5] = currentPayload.mod;     // The Modifiers (Ctrl/Shift)
+    report[6] = currentPayload.keyByte; // The Actual Key (C, V, or F13)
 
     try {
-        console.log(`Sending to Report ID: ${hwReportId} (Len: ${hwReportLen})`);
-        
-        // We use the ID detected during connection
+        console.log(`Writing: KeyIdx=${activeKeyIndex} Mod=${report[5]} Code=${report[6]}`);
         await device.sendReport(hwReportId, report);
         
-        finalize(name, desc, shortcutText, fKeyName);
+        // Save Metadata
+        const name = document.getElementById('bind-name').value;
+        const desc = document.getElementById('bind-desc').value;
+        const txt = document.getElementById('active-shortcut-display').innerText;
+        
+        keyMetadata[activeKeyIndex] = { name, desc, shortcutText: txt };
+        localStorage.setItem('sayo_metadata', JSON.stringify(keyMetadata));
+        
+        alert("Saved Successfully!");
+        refreshSummary();
+        
     } catch (e) {
-        console.error("Write Error:", e);
-        
-        // Last Resort Fallback: Try ID 0 with 64 bytes if detected ID failed
-        if (hwReportId !== 0) {
-            console.warn("Retrying with Report ID 0...");
-            try {
-                await device.sendReport(0, new Uint8Array(64).fill(0).map((_, i) => report[i] || 0));
-                finalize(name, desc, shortcutText, fKeyName);
-                return;
-            } catch (err2) { console.error("Fallback failed:", err2); }
-        }
-        
-        alert(`Write Failed. \nConsole: ${e.message}\n\nTry refreshing the page and reconnecting.`);
+        console.error(e);
+        alert("Write Failed. See console.");
     }
 }
 
-function finalize(name, desc, shortcutText, fKeyName) {
-    keyMetadata[activeKeyIndex] = { name, desc, shortcutText, fKey: fKeyName };
-    localStorage.setItem('sayo_metadata', JSON.stringify(keyMetadata));
-    alert("Saved Successfully!");
-    refreshSummary();
-}
-
-/**
- * 6. Summary Table
- */
 function refreshSummary() {
     const tbody = document.getElementById('summary-body');
     tbody.innerHTML = '';
     const entries = Object.entries(keyMetadata).sort((a, b) => a[0] - b[0]);
-    if (entries.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#666;">No keys programmed yet.</td></tr>';
-        return;
-    }
+    
     entries.forEach(([idx, data]) => {
-        const row = `<tr>
+        tbody.innerHTML += `<tr>
             <td>Key ${parseInt(idx) + 1}</td>
-            <td>${data.fKey}</td>
+            <td>-</td>
             <td><strong>${data.name}</strong></td>
-            <td><code style="background:#333; padding:2px 5px; border-radius:3px;">${data.shortcutText}</code></td>
-            <td style="color:#aaa;">${data.desc}</td>
+            <td><code>${data.shortcutText}</code></td>
+            <td>${data.desc}</td>
         </tr>`;
-        tbody.innerHTML += row;
     });
 }
 
