@@ -1,10 +1,8 @@
-/* main.js - Final Robust Version */
+/* main.js - Protocol Tweaker Version */
 import { SCAN_CODES } from './utils.js';
 
 let device;
 let activeKeyIndex = null;
-
-// Local Metadata Storage
 let keyMetadata = JSON.parse(localStorage.getItem('keypad_metadata')) || {};
 
 // 1. Initialize Dropdown (F13-F24)
@@ -17,7 +15,7 @@ Object.entries(SCAN_CODES).forEach(([keyName, byte]) => {
 });
 
 // ----------------------------------------
-// DEBUG LOGGING SYSTEM
+// LOGGING
 // ----------------------------------------
 function logToConsole(msg, type = 'info') {
     const consoleDiv = document.getElementById('console-log');
@@ -25,16 +23,14 @@ function logToConsole(msg, type = 'info') {
 
     const entry = document.createElement('div');
     entry.classList.add('log-entry', `log-${type}`);
-    
-    const time = new Date().toLocaleTimeString().split(' ')[0];
-    entry.innerText = `[${time}] ${msg}`;
+    entry.innerText = `[${new Date().toLocaleTimeString().split(' ')[0]}] ${msg}`;
     
     consoleDiv.appendChild(entry);
     consoleDiv.scrollTop = consoleDiv.scrollHeight; 
 }
 
 // ----------------------------------------
-// DIAGNOSTIC TOOL
+// DIAGNOSTICS
 // ----------------------------------------
 async function runDiagnostics() {
     if (!device) return logToConsole("❌ No device connected.", "err");
@@ -42,33 +38,35 @@ async function runDiagnostics() {
     logToConsole("--- DIAGNOSTIC SCAN ---", "info");
     logToConsole(`Product: ${device.productName}`, "info");
     
-    let hasWriteCabability = false;
-
+    let hasWrite = false;
     device.collections.forEach((c, i) => {
         const type = (c.usagePage === 0xFF00) ? "✅ VENDOR (Config)" : 
-                     (c.usagePage === 0x01)   ? "🔒 GENERIC (Mouse/Key)" : 
-                     (c.usagePage === 0x0C)   ? "🔊 CONSUMER (Knob)" :
+                     (c.usagePage === 0x01)   ? "🔒 GENERIC" : 
+                     (c.usagePage === 0x0C)   ? "🔊 KNOB" : 
                      `❓ Unknown (0x${c.usagePage.toString(16)})`;
         
-        const outLen = c.outputReports?.length || 0;
-        const featLen = c.featureReports?.length || 0;
+        const out = c.outputReports?.length || 0;
+        const feat = c.featureReports?.length || 0;
         
-        if (outLen > 0 || featLen > 0) hasWriteCabability = true;
+        if (out > 0 || feat > 0) hasWrite = true;
 
-        logToConsole(`Coll #${i}: ${type} [Out:${outLen} Feat:${featLen}]`, "info");
+        logToConsole(`Coll #${i}: ${type} [Out:${out} Feat:${feat}]`, "info");
     });
     
     logToConsole("-----------------------", "info");
 
-    if (!hasWriteCabability) {
-        logToConsole("⚠️ WARNING: READ-ONLY INTERFACE DETECTED", "err");
-        alert("Wrong Interface Selected!\n\nPlease click Connect again and pick the OTHER 'Mini Keyboard' in the list.");
+    if (!hasWrite) {
+        logToConsole("⚠️ READ-ONLY INTERFACE. Re-Connect & select the other device.", "err");
+        alert("Wrong Device! Please connect to the other 'Mini Keyboard' in the list.");
     }
 }
 
-// 2. Connect Device (With Strict Filter)
+// ----------------------------------------
+// CONNECT
+// ----------------------------------------
 export async function connectDevice() {
     try {
+        // Strict Filter for Vendor Page 0xFF00
         const filters = [{ vendorId: 0x1189, usagePage: 0xFF00 }];
 
         let devices;
@@ -87,8 +85,27 @@ export async function connectDevice() {
         logToConsole(`Device Opened: ${device.productName}`, 'info');
         runDiagnostics();
 
-        // Default to Output 3 / Feature 0 based on your logs
-        // We will "Shotgun" send to all likely ports, so strict detection is less critical now.
+        // --- AUTO DETECT PROTOCOL ---
+        // We look for the writable collection to set defaults
+        const writable = device.collections.find(c => c.usagePage === 0xFF00) || device.collections[0];
+        let defId = 0; 
+        let defType = 'output';
+
+        if (writable) {
+            if (writable.outputReports?.length > 0) {
+                defType = 'output';
+                defId = writable.outputReports[0].reportId;
+            } else if (writable.featureReports?.length > 0) {
+                defType = 'feature';
+                defId = writable.featureReports[0].reportId;
+            }
+            logToConsole(`✅ Auto-Detected: ${defType.toUpperCase()} ID:${defId}`, 'tx');
+
+            // Sync detected values to the UI Controls
+            document.getElementById('force-report-id').value = defId;
+            document.getElementById('force-report-type').value = defType;
+        }
+
         document.getElementById('status').innerText = "Status: Connected";
         document.getElementById('status').style.color = "#00d2ff";
         document.getElementById('connectBtn').style.display = 'none';
@@ -96,11 +113,87 @@ export async function connectDevice() {
 
     } catch (e) {
         console.error(e);
-        logToConsole(`Connection Failed: ${e.message}`, 'err');
+        logToConsole(`Connect Error: ${e.message}`, 'err');
     }
 }
 
-// 3. Handle Key Selection
+// ----------------------------------------
+// SAVE (WITH PROTOCOL TWEAKER)
+// ----------------------------------------
+export async function saveActiveBinding() {
+    if (!device) return alert("Connect Keypad first!");
+    
+    const selectedByte = parseInt(fSelector.value);
+    
+    // 1. READ BASIC SETTINGS
+    const useType = document.getElementById('force-report-type').value;
+    const useId = parseInt(document.getElementById('force-report-id').value);
+    const useLen = parseInt(document.getElementById('force-length').value) || 8;
+
+    // 2. READ PROTOCOL TWEAKER SETTINGS
+    const cmdHex = document.getElementById('force-cmd').value; // e.g., "0x03"
+    const cmdByte = parseInt(cmdHex, 16); 
+    const checksumMode = document.getElementById('force-checksum').value;
+
+    // 3. CONSTRUCT PACKET
+    const data = new Uint8Array(useLen).fill(0);
+    
+    data[0] = cmdByte;            // Byte 0: Command (Controlled by Tweaker)
+    data[1] = activeKeyIndex + 1; // Byte 1: Key Index
+    data[2] = 0x01;               // Byte 2: Type (Keyboard)
+    data[3] = selectedByte;       // Byte 3: Key Code
+    data[4] = 0x00;               // Byte 4: Modifiers
+    data[5] = 0x00;               // Byte 5: Reserved
+    data[6] = 0x00;               // Byte 6: Reserved
+    
+    // 4. CALCULATE CHECKSUM
+    let sum = 0;
+    
+    // Some firmwares include the Report ID in the checksum
+    if (checksumMode === 'id_sum') {
+        sum += useId;
+    }
+
+    // Sum data bytes 0-6
+    for(let i=0; i<7; i++) {
+        sum += data[i];
+    }
+    
+    // Apply Checksum to Byte 7 if enabled
+    if (checksumMode !== 'none') {
+        data[7] = sum & 0xFF;
+    }
+    
+    logToConsole(`Sending [${data.slice(0,8).join(',')}] to ${useType.toUpperCase()} ID:${useId}`, 'info');
+
+    try {
+        const sendPromise = (useType === 'feature') 
+            ? device.sendFeatureReport(useId, data)
+            : device.sendReport(useId, data);
+
+        // Timeout to prevent hanging
+        await Promise.race([
+            sendPromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2000))
+        ]);
+        
+        logToConsole(`✅ Packet Sent Successfully`, 'tx');
+
+        // Update Metadata
+        keyMetadata[activeKeyIndex] = selectedByte;
+        localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
+        
+        refreshSummary();
+        showSuccess();
+        
+    } catch (e) {
+        logToConsole(`❌ Error: ${e.message}`, 'err');
+    }
+}
+
+// ----------------------------------------
+// UI HELPERS
+// ----------------------------------------
 export function handleKeySelection(idx) {
     activeKeyIndex = idx; 
     
@@ -109,78 +202,9 @@ export function handleKeySelection(idx) {
     document.getElementById('editor-container').classList.remove('hidden');
     document.getElementById('editingLabel').innerText = `Editing Key ${idx + 1}`;
     
-    const defaultByte = 0x68 + idx; // F13 + idx
+    const defaultByte = 0x68 + idx;
     const savedByte = keyMetadata[idx] || defaultByte;
     fSelector.value = savedByte;
-}
-
-// 4. SAVE (The "Shotgun" Method with Checksum)
-export async function saveActiveBinding() {
-    if (!device) return alert("Connect Keypad first!");
-    
-    const selectedByte = parseInt(fSelector.value);
-    
-    // 1. Construct Packet with 8 Bytes (Standard)
-    const data = new Uint8Array(8).fill(0);
-    
-    data[0] = 0x03;               // Command: Write
-    data[1] = activeKeyIndex + 1; // Key Index
-    data[2] = 0x01;               // Type: Keyboard
-    data[3] = selectedByte;       // Key Code
-    data[4] = 0x00;               // Modifiers
-    data[5] = 0x00;               // Reserved
-    data[6] = 0x00;               // Reserved
-    
-    // 2. CALCULATE CHECKSUM (Critical for some versions)
-    // Sum of first 7 bytes
-    let checksum = 0;
-    for (let i = 0; i < 7; i++) checksum += data[i];
-    data[7] = checksum & 0xFF; // Last byte is the sum
-    
-    logToConsole(`Preparing Packet: [${data.join(', ')}]`, 'info');
-
-    // 3. THE SHOTGUN APPROACH: Send to every likely endpoint
-    // One of these will work and the device will ignore the others.
-    
-    let successCount = 0;
-
-    try {
-        // ATTEMPT A: Output Report ID 3 (What logs said)
-        try {
-            await device.sendReport(3, data);
-            logToConsole(`✅ Sent to Output ID 3`, 'tx');
-            successCount++;
-        } catch (e) { logToConsole(`Could not send Output 3: ${e.message}`, 'info'); }
-
-        // ATTEMPT B: Feature Report ID 0 (Standard for CH57x)
-        // Now that you are on the Vendor Interface, this might be the real one.
-        try {
-            await device.sendFeatureReport(0, data);
-            logToConsole(`✅ Sent to Feature ID 0`, 'tx');
-            successCount++;
-        } catch (e) { logToConsole(`Could not send Feature 0: ${e.message}`, 'info'); }
-
-        // ATTEMPT C: Output Report ID 0 (Common Fallback)
-        try {
-            await device.sendReport(0, data);
-            logToConsole(`✅ Sent to Output ID 0`, 'tx');
-            successCount++;
-        } catch (e) { /* Ignore noise */ }
-
-        if (successCount > 0) {
-            logToConsole(`✨ Command Sent! Test your key now.`, 'success');
-            // Update Metadata
-            keyMetadata[activeKeyIndex] = selectedByte;
-            localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
-            refreshSummary();
-            showSuccess();
-        } else {
-            throw new Error("All send attempts failed.");
-        }
-        
-    } catch (e) {
-        logToConsole(`❌ GLOBAL ERROR: ${e.message}`, 'err');
-    }
 }
 
 function showSuccess() {
@@ -212,8 +236,18 @@ function refreshSummary() {
 }
 
 // ----------------------------------------
-// INPUT TESTER & EVENTS
+// INITIALIZATION
 // ----------------------------------------
+document.getElementById('connectBtn').onclick = connectDevice;
+document.getElementById('save-binding-btn').onclick = saveActiveBinding;
+document.querySelectorAll('.key').forEach(k => k.onclick = () => handleKeySelection(parseInt(k.dataset.idx)));
+
+// Debug / Tweaker Bindings
+document.getElementById('clearLogBtn').onclick = () => { document.getElementById('console-log').innerHTML = ''; };
+document.getElementById('send-test-btn').onclick = saveActiveBinding;
+document.getElementById('diagnoseBtn').onclick = runDiagnostics;
+
+// Input Tester
 const testZone = document.getElementById('key-test-zone');
 if (testZone) {
     testZone.addEventListener('keydown', (e) => {
@@ -226,19 +260,5 @@ if (testZone) {
         setTimeout(() => testZone.style.backgroundColor = '#222', 100);
     });
 }
-
-// Bindings
-document.getElementById('connectBtn').onclick = connectDevice;
-document.getElementById('save-binding-btn').onclick = saveActiveBinding;
-document.querySelectorAll('.key').forEach(k => k.onclick = () => handleKeySelection(parseInt(k.dataset.idx)));
-
-const clearBtn = document.getElementById('clearLogBtn');
-if(clearBtn) clearBtn.onclick = () => { document.getElementById('console-log').innerHTML = ''; };
-
-const resendBtn = document.getElementById('send-test-btn');
-if(resendBtn) resendBtn.onclick = saveActiveBinding;
-
-const diagnoseBtn = document.getElementById('diagnoseBtn');
-if(diagnoseBtn) diagnoseBtn.onclick = runDiagnostics;
 
 window.onload = refreshSummary;
