@@ -1,20 +1,222 @@
-:root { --primary: #00d2ff; --bg: #121212; --card: #1e1e1e; --text: #e0e0e0; }
-body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); display: flex; margin: 0; height: 100vh; }
+/* style.css - Smart Keypad Web Center Theme */
 
-.sidebar { width: 220px; background: #181818; padding: 20px; border-right: 1px solid #333; }
-.layer-item { padding: 12px; margin-bottom: 8px; cursor: pointer; border-radius: 6px; background: #252525; }
-.layer-item.active { background: var(--primary); color: #000; font-weight: bold; }
+:root {
+    --primary: #00d2ff;
+    --primary-glow: rgba(0, 210, 255, 0.4);
+    --bg: #121212;
+    --card: #1e1e1e;
+    --text: #e0e0e0;
+    --border: #333;
+    --key-bg: #2a2a2a;
+    --key-border: #444;
+}
 
-.workspace { flex: 1; padding: 40px; display: flex; flex-direction: column; align-items: center; }
-.keypad-visual { display: grid; grid-template-columns: repeat(3, 90px); gap: 15px; margin: 30px 0; }
-.key { width: 90px; height: 90px; background: #2a2a2a; border: 2px solid #444; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: bold; transition: 0.2s; }
-.key.active { border-color: var(--primary); box-shadow: 0 0 15px var(--primary); color: var(--primary); }
-.knob { grid-column: 2; border-radius: 50%; border-style: dashed; }
+body {
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    margin: 0;
+    height: 100vh;
+    overflow: hidden;
+}
 
-#configPanel { background: #252525; padding: 20px; border-radius: 12px; width: 320px; border: 1px solid #444; }
-select, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 6px; border: none; font-size: 1rem; }
-button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; }
-.hidden { display: none; }
+/* Sidebar Navigation (Layers & Media) */
+.sidebar {
+    width: 240px;
+    background: #181818;
+    padding: 20px;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+}
 
-.media-preview { margin-top: 40px; width: 300px; height: 200px; background: #000; border-radius: 10px; display: flex; align-items: center; justify-content: center; border: 2px solid #333; overflow: hidden; }
-.media-preview img { width: 100%; height: 100%; object-fit: contain; }
+.layer-item {
+    padding: 12px 15px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    border-radius: 6px;
+    background: #252525;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+}
+
+.layer-item:hover {
+    border-color: var(--primary);
+}
+
+.layer-item.active {
+    background: var(--primary);
+    color: #000;
+    font-weight: bold;
+}
+
+/* Main Workspace */
+.workspace {
+    flex: 1;
+    padding: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-y: auto;
+}
+
+header {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    max-width: 800px;
+}
+
+#status {
+    font-size: 0.9rem;
+    color: #888;
+}
+
+/* Visual Keypad Layout */
+.keypad-visual {
+    display: grid;
+    grid-template-columns: repeat(3, 90px);
+    gap: 15px;
+    margin-bottom: 40px;
+}
+
+.key {
+    width: 90px;
+    height: 90px;
+    background: var(--key-bg);
+    border: 2px solid var(--key-border);
+    border-radius: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 1.1rem;
+    transition: 0.2s ease-in-out;
+}
+
+.key:hover {
+    border-color: #666;
+}
+
+.key.active {
+    border-color: var(--primary);
+    box-shadow: 0 0 15px var(--primary-glow);
+    color: var(--primary);
+    transform: translateY(-2px);
+}
+
+.knob {
+    grid-column: 2;
+    border-radius: 50%;
+    border-style: dashed;
+    background: radial-gradient(circle, #333 0%, #222 100%);
+}
+
+/* Config & Controls */
+#configPanel {
+    background: var(--card);
+    padding: 25px;
+    border-radius: 12px;
+    width: 350px;
+    border: 1px solid var(--border);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.control-group {
+    margin-bottom: 15px;
+    text-align: left;
+}
+
+.control-group label {
+    display: block;
+    font-size: 0.85rem;
+    margin-bottom: 5px;
+    color: #aaa;
+}
+
+select, button {
+    width: 100%;
+    padding: 12px;
+    border-radius: 6px;
+    border: 1px solid #444;
+    background: #2a2a2a;
+    color: white;
+    font-size: 1rem;
+    outline: none;
+}
+
+select:focus {
+    border-color: var(--primary);
+}
+
+button {
+    background: var(--primary);
+    color: #000;
+    font-weight: bold;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+button:hover {
+    opacity: 0.9;
+}
+
+button#connectBtn {
+    width: auto;
+    padding: 8px 15px;
+}
+
+/* Test Bench & Media */
+.test-bench {
+    margin-top: 40px;
+    width: 100%;
+    max-width: 500px;
+    text-align: center;
+}
+
+#testDisplay {
+    background: #000;
+    color: #00ff00;
+    padding: 20px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 10px 0;
+    min-height: 24px;
+}
+
+#clearTestBtn {
+    background: #333;
+    color: #ccc;
+    font-size: 0.8rem;
+    width: auto;
+    padding: 5px 15px;
+}
+
+.media-preview {
+    margin-top: 40px;
+    width: 320px;
+    height: 200px;
+    background: #000;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--border);
+    overflow: hidden;
+}
+
+.media-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.hidden {
+    display: none;
+}

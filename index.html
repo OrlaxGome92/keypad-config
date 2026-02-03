@@ -2,25 +2,32 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Keypad Web Center</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="./style.css">
 </head>
 <body>
     <div class="sidebar" id="layerList">
         <h3>Layers</h3>
         <div id="layersContainer">
-            <div class="layer-item active" onclick="switchLayer(0)">Base Layer</div>
+            <div class="layer-item active" onclick="location.reload()">Base Layer</div>
         </div>
-        <button onclick="addLayer()">+ Add Layer</button>
-        <hr>
-        <button onclick="selectMediaFolder()">📁 Select Media Folder</button>
+        <button id="addLayerBtn">+ Add Layer</button>
+        <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
+        <button id="folderBtn">📁 Select Media Folder</button>
+        <div style="margin-top: 20px;">
+            <label for="importFile" style="cursor: pointer; background: #333; padding: 10px; border-radius: 5px; display: block; text-align: center;">📂 Import Config</label>
+            <input type="file" id="importFile" style="display:none;">
+        </div>
     </div>
 
     <div class="workspace">
         <header>
-            <h2>Smart Keypad Center</h2>
-            <button id="connBtn">Connect Keypad</button>
-            <span id="status">Disconnected</span>
+            <h1>Smart Keypad Center</h1>
+            <div id="status-bar">
+                <button id="connectBtn">Connect Keypad</button>
+                <span id="status">Status: Disconnected</span>
+            </div>
         </header>
         
         <div class="keypad-visual">
@@ -35,27 +42,87 @@
 
         <div id="configPanel" class="hidden">
             <h3 id="editingLabel">Editing Key</h3>
-            <label>Action Type:</label>
-            <select id="actionType">
-                <option value="hardware">Hardware Key (On-Board)</option>
-                <option value="macro">Software Macro (Browser)</option>
-            </select>
             
-            <label>Modifier:</label>
-            <select id="modSelect"></select>
+            <div class="control-group">
+                <label>Action Type:</label>
+                <select id="actionType">
+                    <option value="hardware">Hardware Key (On-Board)</option>
+                    <option value="macro">Software Macro (Browser)</option>
+                </select>
+            </div>
             
-            <label>Key/Action:</label>
-            <select id="keySelect"></select>
+            <div class="control-group">
+                <label>Modifier:</label>
+                <select id="modSelect"></select>
+            </div>
             
-            <button id="saveBtn">Apply to Device</button>
+            <div class="control-group">
+                <label>Key/Action:</label>
+                <select id="keySelect"></select>
+            </div>
+            
+            <button id="saveBtn">Apply Changes</button>
+        </div>
+
+        <div class="test-bench">
+            <h3>Live Key Test</h3>
+            <div id="testDisplay">Press a key on your keypad to test...</div>
+            <button id="clearTestBtn">Clear Test Area</button>
         </div>
 
         <div class="media-preview" id="player">
             <img src="" id="slide" class="hidden">
-            <p id="mediaStatus">No media selected</p>
+            <p id="mediaStatus">Media Player Idle</p>
         </div>
     </div>
 
-    <script type="module" src="main.js"></script>
+    <script type="module">
+        import { connectDevice, saveKeyConfig } from './main.js';
+        import { SCAN_CODES, MODIFIERS } from './utils.js';
+
+        let activeIndex = 0;
+
+        // Populate Dropdowns from utils.js
+        const modS = document.getElementById('modSelect');
+        const keyS = document.getElementById('keySelect');
+        
+        Object.keys(MODIFIERS).forEach(m => modS.add(new Option(m, m)));
+        Object.keys(SCAN_CODES).forEach(k => keyS.add(new Option(k, k)));
+
+        // Handle Visual Key Selection
+        document.querySelectorAll('.key').forEach(el => {
+            el.addEventListener('click', () => {
+                activeIndex = parseInt(el.dataset.idx);
+                document.querySelectorAll('.key').forEach(k => k.classList.remove('active'));
+                el.classList.add('active');
+                document.getElementById('configPanel').classList.remove('hidden');
+                document.getElementById('editingLabel').innerText = activeIndex === 6 ? "Editing Knob" : `Editing Key ${activeIndex+1}`;
+            });
+        });
+
+        // Event Listeners
+        document.getElementById('connectBtn').addEventListener('click', connectDevice);
+        document.getElementById('saveBtn').addEventListener('click', () => {
+            saveKeyConfig(activeIndex, modS.value, keyS.value);
+        });
+
+        // Key Test Logic
+        window.addEventListener('keydown', (e) => {
+            const mods = [];
+            if (e.ctrlKey) mods.push('Ctrl');
+            if (e.shiftKey) mods.push('Shift');
+            if (e.altKey) mods.push('Alt');
+            if (e.metaKey) mods.push('Win');
+            
+            const keyName = e.key === " " ? "Space" : e.key;
+            const combo = mods.length > 0 ? `${mods.join('+')}+${keyName}` : keyName;
+            
+            document.getElementById('testDisplay').innerText = `Detected: ${combo}`;
+        });
+
+        document.getElementById('clearTestBtn').onclick = () => {
+            document.getElementById('testDisplay').innerText = "Press a key on your keypad to test...";
+        };
+    </script>
 </body>
 </html>
