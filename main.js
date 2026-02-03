@@ -7,7 +7,7 @@ let activeKeyIndex = null;
 // Hardware Protocol Info
 let reportType = 'output'; // 'output' or 'feature'
 let hwReportId = 0;
-let hwReportLen = 8; // Default to 8 bytes for these pads
+let hwReportLen = 8; // Default to 8 bytes
 
 // Local Metadata Storage
 let keyMetadata = JSON.parse(localStorage.getItem('keypad_metadata')) || {};
@@ -54,8 +54,6 @@ export async function connectDevice() {
         logToConsole(`Device Opened: ${device.productName}`, 'info');
 
         // --- PROTOCOL DETECTION ---
-        // Search for the config collection (usually UsagePage 0xFF00 or Generic Desktop)
-        // We prioritize Feature Reports for configuration on these devices.
         const collection = device.collections.find(c => c.usagePage === 0xFF00) || device.collections[0];
         
         if (collection) {
@@ -103,47 +101,46 @@ export function handleKeySelection(idx) {
     fSelector.value = savedByte;
 }
 
-// 4. SAVE (Universal Method with Debug Overrides)
+// 4. SAVE (Robust Method with Length Override & Timeout)
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
     
     const selectedByte = parseInt(fSelector.value);
-    const selectedText = fSelector.options[fSelector.selectedIndex].text;
     
-    // Check for Manual Overrides in Debug Panel
+    // 1. Get Values from Debug Panel
     const forceType = document.getElementById('force-report-type').value;
-    const forceIdVal = document.getElementById('force-report-id').value;
-    const forceId = parseInt(forceIdVal);
+    const forceId = parseInt(document.getElementById('force-report-id').value);
+    // CRITICAL FIX: Use the length from the debug panel (default 8) to avoid hanging
+    const forceLen = parseInt(document.getElementById('force-length').value) || 8;
 
-    // Determine Logic
-    const useType = (forceType !== 'auto') ? forceType : reportType;
-    const useId = (forceIdVal !== "0" && !isNaN(forceId)) ? forceId : hwReportId;
-
-    // Construct Packet
-    // Standard Format for VID 1189: [Cmd, Index, Type, Key, Mod, Pad...]
-    // Packet length must match hwReportLen (usually 8 or 64)
-    const data = new Uint8Array(hwReportLen).fill(0);
+    // 2. Construct Data Packet (Respecting forced length)
+    const data = new Uint8Array(forceLen).fill(0);
     
+    // Standard Packet Structure for VID 0x1189
     data[0] = 0x03;               // Command: Write
     data[1] = activeKeyIndex + 1; // Key Index (1-based)
     data[2] = 0x01;               // Type: Keyboard
     data[3] = selectedByte;       // Key Code
-    data[4] = 0x00;               // Modifiers (None)
+    data[4] = 0x00;               // Modifiers
     
-    logToConsole(`Preparing Packet: [${data.join(', ')}]`, 'info');
-    logToConsole(`Target: ${useType.toUpperCase()} | ReportID: ${useId}`, 'info');
+    logToConsole(`Preparing Packet (${data.length} bytes): [${data.join(', ')}]`, 'info');
+    logToConsole(`Target: ${forceType.toUpperCase()} | ReportID: ${forceId}`, 'info');
 
     try {
-        // Try the detected/selected method
-        if (useType === 'feature') {
-            await device.sendFeatureReport(useId, data);
-        } else {
-            await device.sendReport(useId, data);
-        }
+        // 3. Send with Timeout (Prevents hanging if ID/Length is wrong)
+        const sendPromise = (forceType === 'feature') 
+            ? device.sendFeatureReport(forceId, data)
+            : device.sendReport(forceId, data);
+
+        // Race against a 2-second timeout
+        await Promise.race([
+            sendPromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout: Device didn't respond (Try changing Length or ID)")), 2000))
+        ]);
         
         logToConsole(`✅ Packet Sent Successfully`, 'tx');
 
-        // Save to Metadata
+        // Update Metadata
         keyMetadata[activeKeyIndex] = selectedByte;
         localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
         
@@ -151,30 +148,8 @@ export async function saveActiveBinding() {
         showSuccess();
         
     } catch (e) {
-        logToConsole(`❌ Primary send failed: ${e.message}`, 'err');
-        console.warn("Primary send failed, trying fallback...", e);
-        
-        // Only attempt fallback if we are in Auto mode (don't override user manual choice)
-        if (forceType === 'auto') {
-            try {
-                logToConsole(`⚠️ Attempting Fallback (swapping report type)...`, 'info');
-                // Fallback: If Feature failed, try Output (or vice versa)
-                if (reportType === 'feature') await device.sendReport(hwReportId, data);
-                else await device.sendFeatureReport(hwReportId, data);
-                
-                logToConsole(`✅ Fallback Sent Successfully`, 'tx');
-
-                // If fallback worked, update metadata
-                keyMetadata[activeKeyIndex] = selectedByte;
-                localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
-                refreshSummary();
-                showSuccess();
-            } catch (e2) {
-                console.error(e2);
-                logToConsole(`❌ Fallback Failed: ${e2.message}`, 'err');
-                alert("Update Failed. Check Log for details.");
-            }
-        }
+        logToConsole(`❌ Error: ${e.message}`, 'err');
+        console.error(e);
     }
 }
 
@@ -208,20 +183,20 @@ function refreshSummary() {
 }
 
 // ----------------------------------------
-// NEW: INPUT TESTER LOGIC
+// INPUT TESTER & EVENTS
 // ----------------------------------------
 const testZone = document.getElementById('key-test-zone');
 
 if (testZone) {
     testZone.addEventListener('keydown', (e) => {
-        e.preventDefault(); // Stop browser actions (like F5 refresh or scrolling)
+        e.preventDefault(); // Stop browser actions
         
         document.getElementById('last-key-display').innerText = `${e.code}`;
         document.getElementById('d-code').innerText = e.code;
         document.getElementById('d-key').innerText = e.key;
-        document.getElementById('d-which').innerText = e.which; // Deprecated but useful for legacy checks
+        document.getElementById('d-which').innerText = e.which;
         
-        // Flash the box to show activity
+        // Flash the box
         testZone.style.backgroundColor = '#333';
         setTimeout(() => testZone.style.backgroundColor = '#222', 100);
     });

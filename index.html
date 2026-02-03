@@ -104,11 +104,20 @@
         .manual-controls {
             margin-top: 15px;
             display: flex;
+            flex-wrap: wrap;
             gap: 15px;
             align-items: center;
             background: #1a1a1a;
             padding: 10px;
             border-radius: 6px;
+        }
+        
+        .manual-controls label {
+            color: #aaa;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .secondary-btn {
@@ -205,15 +214,18 @@
             
             <div class="manual-controls">
                 <label>
-                    Force Report ID: 
-                    <input type="number" id="force-report-id" value="0" style="width: 50px; padding: 5px;">
+                    Report ID: 
+                    <input type="number" id="force-report-id" value="0" style="width: 40px; padding: 5px;">
                 </label>
                 <label>
-                    Force Type:
+                    Length: 
+                    <input type="number" id="force-length" value="8" style="width: 40px; padding: 5px;">
+                </label>
+                <label>
+                    Type:
                     <select id="force-report-type" style="width: auto; padding: 5px;">
-                        <option value="auto">Auto-Detect</option>
-                        <option value="feature">Feature Report</option>
-                        <option value="output">Output Report</option>
+                        <option value="output">Output</option>
+                        <option value="feature">Feature</option>
                     </select>
                 </label>
                 <button id="send-test-btn" class="secondary-btn">Resend Last Binding</button>
