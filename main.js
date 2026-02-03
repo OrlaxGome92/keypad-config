@@ -6,13 +6,12 @@ let tempMod = 0;
 let tempKey = 0;
 let tempText = "";
 
-// Metadata storage for the summary table
+// Metadata storage
 let keyMetadata = JSON.parse(localStorage.getItem('sayo_metadata')) || {};
 
 // 1. Initialize F-Key Dropdown (F13 - F24 ONLY)
 const fSelector = document.getElementById('fkey-selector');
 Object.keys(SCAN_CODES).forEach(fKey => {
-    // Check if the key starts with 'F' and is >= 13
     const keyNum = parseInt(fKey.replace('F', ''));
     if (keyNum >= 13 && keyNum <= 24) {
         fSelector.add(new Option(fKey, fKey));
@@ -21,54 +20,53 @@ Object.keys(SCAN_CODES).forEach(fKey => {
 
 /**
  * 2. Hardware Connection
- * Specifically filters for the Vendor interface to bypass the NotAllowedError.
  */
 export async function connectDevice() {
     try {
         const filters = [{ vendorId: 0x1189, productId: 0x8890 }];
         const devices = await navigator.hid.requestDevice({ filters });
         
-        // Target Usage Page 0xFF00 (Vendor Defined) to avoid restricted keyboard interface
-        // Windows/Chrome blocks Usage Page 1 (Generic Desktop) Usage 6 (Keyboard)
+        // Filter for Vendor Defined Interface (Usage Page 0xFF00)
         device = devices.find(d => 
             d.collections.some(c => c.usagePage === 0xFF00 || c.usagePage === 0xFF60)
         );
 
         if (!device) {
-            alert("Security Error: You selected the 'Keyboard' interface.\n\nPlease try again and select the 'HID-compliant device' or 'Vendor-defined device'.");
+            alert("Security Error: Interface Blocked.\n\nPlease select the 'HID-compliant device' or 'Vendor-defined device' (NOT 'Keyboard').");
             return;
         }
 
-        await device.open();
+        if (!device.opened) {
+            await device.open();
+        }
+        
         document.getElementById('status').innerText = "Status: Connected";
         document.getElementById('status').style.color = "#00d2ff";
         document.getElementById('connectBtn').style.display = 'none';
         refreshSummary();
+        console.log("Device connected:", device.productName);
+
     } catch (e) {
         console.error(e);
         if (e.name === 'NotAllowedError') {
-             alert("Connection Blocked.\n\nEnsure you did NOT select the line item labeled 'Keyboard'. Windows Security blocks access to that specific interface.");
+             alert("Connection Blocked. Please ensure you did not select the 'Keyboard' interface.");
         } else {
-             alert("Connection failed. Ensure you are using HTTPS and selected the correct interface.");
+             alert(`Connection Failed: ${e.message}`);
         }
     }
 }
 
 /**
  * 3. Key Selection
- * Loads existing metadata and automatically syncs the F-key dropdown.
  */
 export function handleKeySelection(idx) {
     activeKeyIndex = idx;
     
-    // UI Updates
     document.querySelectorAll('.key').forEach(k => k.classList.remove('active'));
     document.getElementById(`v-${idx}`).classList.add('active');
     document.getElementById('editor-container').classList.remove('hidden');
     document.getElementById('editingLabel').innerText = `Editing Key ${idx + 1}`;
     
-    // Load existing metadata or defaults
-    // Default F-Key mapping: Key 0 -> F13, Key 1 -> F14, etc.
     const defaultFKey = `F${13 + idx}`;
     const data = keyMetadata[idx] || { name: "", desc: "", shortcutText: "None", fKey: defaultFKey };
     
@@ -76,14 +74,13 @@ export function handleKeySelection(idx) {
     document.getElementById('bind-desc').value = data.desc;
     document.getElementById('active-shortcut-display').innerText = data.shortcutText;
     
-    // Sync the F-Key dropdown
     if (SCAN_CODES[data.fKey]) {
         document.getElementById('fkey-selector').value = data.fKey;
     }
 }
 
 /**
- * 4. Modal Recording Logic
+ * 4. Modal Recording
  */
 const modal = document.getElementById('record-modal');
 const recorderDisplay = document.getElementById('modal-recorder-display');
@@ -97,53 +94,43 @@ export function openRecordModal() {
 }
 
 window.addEventListener('keydown', (e) => {
-    // Only listen if modal is open
     if (modal.classList.contains('hidden')) return;
-    
     e.preventDefault();
 
-    // Capture Modifiers Bitmask
     tempMod = (e.ctrlKey ? 0x01 : 0) | (e.shiftKey ? 0x02 : 0) | (e.altKey ? 0x04 : 0);
     
-    // Build human-readable string
     const mods = [];
     if (e.ctrlKey) mods.push("Ctrl");
     if (e.shiftKey) mods.push("Shift");
     if (e.altKey) mods.push("Alt");
     
-    // If a non-modifier key is pressed, show the full combo
-    // We filter out standalone presses of Control/Shift/Alt to keep display clean until combo is done
     if (e.key !== 'Control' && e.key !== 'Shift' && e.key !== 'Alt') {
         tempText = (mods.length > 0 ? mods.join('+') + '+' : '') + e.key.toUpperCase();
         recorderDisplay.innerText = tempText;
-        recorderDisplay.style.color = "#00d2ff"; // Active color
+        recorderDisplay.style.color = "#00d2ff";
     } else {
-        // Just modifiers pressed so far
         recorderDisplay.innerText = mods.join('+') + "...";
     }
 });
 
-// Modal Buttons
 document.getElementById('modal-save').onclick = () => {
-    // Save the recorded text to the main editor UI
     document.getElementById('active-shortcut-display').innerText = tempText;
     modal.classList.add('hidden');
 };
-
 document.getElementById('modal-reset').onclick = () => {
     tempMod = 0;
     tempText = "Listening...";
     recorderDisplay.innerText = tempText;
     recorderDisplay.style.color = "#666";
 };
-
 document.getElementById('modal-cancel').onclick = () => modal.classList.add('hidden');
 
 /**
- * 5. Save to Hardware
+ * 5. Save to Hardware (FIXED)
  */
 export async function saveActiveBinding() {
-    if (!device) return alert("Connect Keypad first!");
+    if (!device) return alert("Please Connect Keypad first!");
+    if (activeKeyIndex === null) return alert("Please select a key to edit first!");
 
     const fKeyName = document.getElementById('fkey-selector').value;
     const hardwareKeyByte = SCAN_CODES[fKeyName];
@@ -151,27 +138,33 @@ export async function saveActiveBinding() {
     const desc = document.getElementById('bind-desc').value;
     const shortcutText = document.getElementById('active-shortcut-display').innerText;
 
-    // Construct Report
-    const report = new Uint8Array(64);
-    report[0] = 0x03; // Command
-    report[1] = activeKeyIndex; // Key Index
-    report[2] = 0x11; // Action: HID Key
-    report[3] = 0x01; 
-    report[4] = 0x01; 
-    report[5] = tempMod; // Modifier mask from the recording
-    report[6] = hardwareKeyByte; // The F-Key byte (e.g., F13)
+    // PREPARE REPORT
+    // Command 0x03 is standard for "Write Key" on many SayoDevices
+    const report = new Uint8Array(64).fill(0); // Fill with zeros to prevent garbage data
+    report[0] = 0x03;            // Command ID
+    report[1] = activeKeyIndex;  // Key Index (0-6)
+    report[2] = 0x11;            // Action Type (HID Key)
+    report[3] = 0x01;            // Modifier 1 (Standard)
+    report[4] = 0x01;            // Modifier 2 (Standard)
+    report[5] = tempMod;         // Modifier Mask (Ctrl/Shift/Alt)
+    report[6] = hardwareKeyByte; // The F13-F24 Scan Code
 
     try {
+        console.log("Attempting Write to Report ID 0...");
         await device.sendReport(0, report);
+        console.log("Success on Report ID 0");
         finalize(name, desc, shortcutText, fKeyName);
     } catch (e) {
+        console.warn("Write to ID 0 failed, trying Report ID 1...", e);
         try {
-            // Fallback for different firmware versions (Report ID 1)
-            await device.sendReport(1, report.slice(1));
+            // FIX: Send the FULL report to ID 1. Do not slice.
+            // Some firmwares require the command byte 0x03 even on Report ID 1.
+            await device.sendReport(1, report);
+            console.log("Success on Report ID 1");
             finalize(name, desc, shortcutText, fKeyName);
         } catch (err) {
-            console.error(err);
-            alert("Write Failed: Device communication error.");
+            console.error("Critical Write Error:", err);
+            alert(`Write Failed: ${err.message}\n\nTry reconnecting the device.`);
         }
     }
 }
@@ -184,7 +177,7 @@ function finalize(name, desc, shortcutText, fKeyName) {
 }
 
 /**
- * 6. Summary Table Refresh
+ * 6. Summary Table
  */
 function refreshSummary() {
     const tbody = document.getElementById('summary-body');
@@ -209,12 +202,11 @@ function refreshSummary() {
     });
 }
 
-// Global Event Binding
+// Bindings
 document.getElementById('connectBtn').onclick = connectDevice;
 document.getElementById('btn-record-popup').onclick = openRecordModal;
 document.getElementById('save-binding-btn').onclick = saveActiveBinding;
 
-// Bind Keypad Visual Clicks
 document.querySelectorAll('.key').forEach(k => {
     k.onclick = () => handleKeySelection(parseInt(k.dataset.idx));
 });
