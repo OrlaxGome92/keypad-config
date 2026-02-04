@@ -1,4 +1,4 @@
-/* main.js */
+/* main.js - Final Version with Manual Debug Override */
 import { SCAN_CODES } from './utils.js';
 
 let device;
@@ -66,7 +66,6 @@ async function runDiagnostics() {
 export async function connectDevice() {
     try {
         // 1. Try to filter specifically for the Config Interface (Usage Page 0xFF00)
-        // This forces the browser to request the specific writable interface.
         const filters = [
             { vendorId: 0x1189, usagePage: 0xFF00 }
         ];
@@ -75,7 +74,6 @@ export async function connectDevice() {
         try {
             devices = await navigator.hid.requestDevice({ filters });
         } catch (e) {
-            // Fallback if specific filter is not supported by browser/device
             console.warn("Specific filter failed, trying generic VID...", e);
             devices = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x1189 }] });
         }
@@ -100,7 +98,7 @@ export async function connectDevice() {
 }
 
 // ----------------------------------------
-// SAVE (Mini Keyboard 0x1189 Protocol)
+// SAVE (Mini Keyboard Protocol + Debug Override)
 // ----------------------------------------
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
@@ -110,41 +108,41 @@ export async function saveActiveBinding() {
     if (!writable) return alert("Read-Only Interface! Reconnect and choose the other device option.");
 
     const selectedByte = parseInt(fSelector.value);
-    const reportId = 3; // Standard for this controller
+    const reportId = 3; 
 
-    // --- ID MAPPING FIX ---
-    // UI Index 12 (Right) -> Was 13, Now 14
-    // UI Index 13 (Left)  -> Was 14, Now 13
+    // --- TARGET ID LOGIC ---
+    let targetId;
     
-    let targetId = activeKeyIndex + 1; // Default
-    
-    if (activeKeyIndex === 12) targetId = 14; // Swap Right to 14
-    if (activeKeyIndex === 13) targetId = 13; // Swap Left to 13
+    // 1. CHECK DEBUG OVERRIDE
+    const debugIdInput = document.getElementById('debug-target-id');
+    if (debugIdInput && debugIdInput.value) {
+        targetId = parseInt(debugIdInput.value);
+        logToConsole(`⚠️ DEBUG: Overriding Target ID to ${targetId}`, 'info');
+    } else {
+        // 2. USE DEFAULT MAPPING
+        // Knob UI (12,13,14) -> Device ID (13,14,15)
+        // Keys UI (0-5) -> Device ID (1-6)
+        targetId = activeKeyIndex + 1;
+    }
 
-    // --- STEP 1: CONSTRUCT KEY PACKET ---
+    // --- PACKET CONSTRUCTION ---
     // Structure: [KeyIndex, 0x11, 0x01, 0x01, Modifiers, KeyCode, ...Padding]
     const packet = new Uint8Array(64).fill(0);
     
-    // KeyIndex Mapping:
-    // UI Index 0-5  -> Device ID 1-6 (Keys)
-    // UI Index 12   -> Device ID 13 (Knob CW)
-    // UI Index 13   -> Device ID 14 (Knob CCW)
-    // UI Index 14   -> Device ID 15 (Knob Press)
-    packet[0] = activeKeyIndex + 1; 
-    
+    packet[0] = targetId; 
     packet[1] = 0x11;         // Command: Write
     packet[2] = 0x01;         // Fixed
     packet[3] = 0x01;         // Fixed
-    packet[4] = 0x00;         // Modifiers (We map them as main keys in utils.js)
+    packet[4] = 0x00;         // Modifiers 
     packet[5] = selectedByte; // Key Code
     
-    logToConsole(`1. Setting Key ID:${packet[0]} to [0x${selectedByte.toString(16).toUpperCase()}]...`, 'info');
+    logToConsole(`1. Setting Key ID:${targetId} to [0x${selectedByte.toString(16).toUpperCase()}]...`, 'info');
 
     try {
         // Send Assignment
         await device.sendReport(reportId, packet);
         
-        // --- STEP 2: SAVE TO EEPROM ---
+        // --- SAVE TO EEPROM ---
         await new Promise(r => setTimeout(r, 100)); // Short delay
         
         const savePacket = new Uint8Array(64).fill(0);
@@ -154,11 +152,14 @@ export async function saveActiveBinding() {
         logToConsole(`2. Persisting (0xAA)...`, 'info');
         await device.sendReport(reportId, savePacket);
         
-        logToConsole(`✅ Key Saved Successfully`, 'tx');
+        logToConsole(`✅ Packet Sent Successfully`, 'tx');
         
-        keyMetadata[activeKeyIndex] = selectedByte;
-        localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
-        refreshSummary();
+        // Only update persistent UI storage if we are NOT debugging a manual ID
+        if (!debugIdInput.value) {
+            keyMetadata[activeKeyIndex] = selectedByte;
+            localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
+            refreshSummary();
+        }
         showSuccess();
     } catch (e) { 
         logToConsole(`❌ Write Error: ${e.message}`, 'err'); 
@@ -171,7 +172,6 @@ export function handleKeySelection(idx) {
     
     // Visual Selection Logic
     document.querySelectorAll('.key').forEach(k => k.classList.remove('active'));
-    // Handle specific knob selectors
     const el = document.getElementById(`v-${idx}`);
     if(el) el.classList.add('active');
     
@@ -187,6 +187,10 @@ export function handleKeySelection(idx) {
     
     // Pre-select current value or default to 'a'
     fSelector.value = keyMetadata[idx] || 0x04;
+    
+    // Clear the debug override when changing keys to prevent accidents
+    const debugInput = document.getElementById('debug-target-id');
+    if(debugInput) debugInput.value = '';
 }
 
 function showSuccess() {
@@ -212,7 +216,6 @@ function refreshSummary() {
         return `Byte 0x${byte.toString(16).toUpperCase()}`;
     };
 
-    // Helper to format Key Names
     const getKeyLabel = (idx) => {
         const i = parseInt(idx);
         if (i === 12) return "Knob Right (CW)";
@@ -229,8 +232,9 @@ function refreshSummary() {
 // INIT
 document.getElementById('connectBtn').onclick = connectDevice;
 document.getElementById('save-binding-btn').onclick = saveActiveBinding;
+// Wire up the new "Resend Binding" button in the debug panel
+document.getElementById('send-test-btn').onclick = saveActiveBinding;
 
-// Bind Click Events for Keys & Knobs
 document.querySelectorAll('.key').forEach(k => {
     k.onclick = () => handleKeySelection(parseInt(k.dataset.idx));
 });
@@ -251,4 +255,3 @@ if(testZone) testZone.addEventListener('keydown', (e) => {
 });
 
 window.onload = refreshSummary;
-
