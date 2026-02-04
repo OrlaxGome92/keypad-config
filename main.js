@@ -1,4 +1,4 @@
-/* main.js - Fixed Knob Mapping for 16-Key Protocol */
+/* main.js - Fixed Knob Mapping V2 (Empirical) */
 import { SCAN_CODES } from './utils.js';
 
 let device;
@@ -98,7 +98,7 @@ export async function connectDevice() {
 }
 
 // ----------------------------------------
-// SAVE (Corrected for 16-Key Protocol Offset)
+// SAVE (Corrected for Empirical Mapping)
 // ----------------------------------------
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
@@ -119,16 +119,17 @@ export async function saveActiveBinding() {
         targetId = parseInt(debugIdInput.value);
         logToConsole(`⚠️ DEBUG: Overriding Target ID to ${targetId}`, 'info');
     } else {
-        // 2. USE MANUFACTURER MAPPING (16 Keys + Knobs)
-        // Manufacturer software shows keys K1-K16.
-        // Therefore, Knob 1 likely starts at ID 17.
-        // Visual Order: [Left] [Centre] [Right]
+        // 2. USE EMPIRICAL MAPPING
+        // Based on user testing:
+        // ID 17 = Right (CW)
+        // ID 18 = Left (CCW)
+        // ID 19 = Press (Centre)
         
         if (activeKeyIndex >= 12) {
             // It's a Knob
-            if (activeKeyIndex === 13) targetId = 19; // Knob Left (CCW)
-            if (activeKeyIndex === 14) targetId = 20; // Knob Press (Centre)
-            if (activeKeyIndex === 12) targetId = 18; // Knob Right (CW)
+            if (activeKeyIndex === 12) targetId = 17; // UI: Right -> ID 17
+            if (activeKeyIndex === 13) targetId = 18; // UI: Left  -> ID 18
+            if (activeKeyIndex === 14) targetId = 19; // UI: Press -> ID 19
             
             logToConsole(`Mapping UI Knob Idx ${activeKeyIndex} -> Device ID ${targetId}`, 'info');
         } else {
@@ -267,4 +268,3 @@ if(testZone) testZone.addEventListener('keydown', (e) => {
 });
 
 window.onload = refreshSummary;
-
