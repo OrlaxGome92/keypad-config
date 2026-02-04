@@ -279,11 +279,15 @@
                 <div id="console-log"></div>
             </div>
             
-            <div class="manual-controls" style="opacity: 0.5; pointer-events: none;">
-                <label>Protocol Tweaker (Auto-Managed by main.js):</label>
-                <input type="text" id="force-cmd" value="0x11" style="width: 50px;" disabled>
-                <input type="text" id="force-report-id" value="3" style="width: 30px;" disabled>
-                <button id="send-test-btn" class="secondary-btn" disabled>Resend Last</button>
+            <div class="manual-controls">
+                <label style="color:#00d2ff; font-weight:bold;">Protocol Tweaker:</label>
+                
+                <label>Target Key ID: 
+                    <input type="number" id="debug-target-id" placeholder="Auto" style="width: 50px; padding: 5px; text-align:center; border:1px solid #00d2ff; color:white; background:#333;">
+                </label>
+
+                <label>Report ID: <input type="number" id="force-report-id" value="3" style="width: 30px; padding: 5px;" disabled></label>
+                <button id="send-test-btn" class="secondary-btn">Resend Binding</button>
             </div>
         </div>
     </div>
