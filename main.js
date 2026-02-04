@@ -1,4 +1,4 @@
-/* main.js - Final Version with Manual Debug Override */
+/* main.js - Fixed Knob Mapping for 16-Key Protocol */
 import { SCAN_CODES } from './utils.js';
 
 let device;
@@ -98,7 +98,7 @@ export async function connectDevice() {
 }
 
 // ----------------------------------------
-// SAVE (Mini Keyboard Protocol + Debug Override)
+// SAVE (Corrected for 16-Key Protocol Offset)
 // ----------------------------------------
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
@@ -119,10 +119,22 @@ export async function saveActiveBinding() {
         targetId = parseInt(debugIdInput.value);
         logToConsole(`⚠️ DEBUG: Overriding Target ID to ${targetId}`, 'info');
     } else {
-        // 2. USE DEFAULT MAPPING
-        // Knob UI (12,13,14) -> Device ID (13,14,15)
-        // Keys UI (0-5) -> Device ID (1-6)
-        targetId = activeKeyIndex + 1;
+        // 2. USE MANUFACTURER MAPPING (16 Keys + Knobs)
+        // Manufacturer software shows keys K1-K16.
+        // Therefore, Knob 1 likely starts at ID 17.
+        // Visual Order: [Left] [Centre] [Right]
+        
+        if (activeKeyIndex >= 12) {
+            // It's a Knob
+            if (activeKeyIndex === 13) targetId = 17; // Knob Left (CCW)
+            if (activeKeyIndex === 14) targetId = 18; // Knob Press (Centre)
+            if (activeKeyIndex === 12) targetId = 19; // Knob Right (CW)
+            
+            logToConsole(`Mapping UI Knob Idx ${activeKeyIndex} -> Device ID ${targetId}`, 'info');
+        } else {
+            // It's a Key (0-5) -> ID (1-6)
+            targetId = activeKeyIndex + 1;
+        }
     }
 
     // --- PACKET CONSTRUCTION ---
