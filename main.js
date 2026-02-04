@@ -112,6 +112,15 @@ export async function saveActiveBinding() {
     const selectedByte = parseInt(fSelector.value);
     const reportId = 3; // Standard for this controller
 
+    // --- ID MAPPING FIX ---
+    // UI Index 12 (Right) -> Was 13, Now 14
+    // UI Index 13 (Left)  -> Was 14, Now 13
+    
+    let targetId = activeKeyIndex + 1; // Default
+    
+    if (activeKeyIndex === 12) targetId = 14; // Swap Right to 14
+    if (activeKeyIndex === 13) targetId = 13; // Swap Left to 13
+
     // --- STEP 1: CONSTRUCT KEY PACKET ---
     // Structure: [KeyIndex, 0x11, 0x01, 0x01, Modifiers, KeyCode, ...Padding]
     const packet = new Uint8Array(64).fill(0);
@@ -242,3 +251,4 @@ if(testZone) testZone.addEventListener('keydown', (e) => {
 });
 
 window.onload = refreshSummary;
+
