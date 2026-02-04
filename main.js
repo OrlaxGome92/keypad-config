@@ -1,4 +1,4 @@
-/* main.js - Fixed Knob Mapping V2 (Empirical) */
+/* main.js - Final Corrected Mapping (Swapped L/R) */
 import { SCAN_CODES } from './utils.js';
 
 let device;
@@ -98,7 +98,7 @@ export async function connectDevice() {
 }
 
 // ----------------------------------------
-// SAVE (Corrected for Empirical Mapping)
+// SAVE (Corrected L/R Swap)
 // ----------------------------------------
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
@@ -119,17 +119,13 @@ export async function saveActiveBinding() {
         targetId = parseInt(debugIdInput.value);
         logToConsole(`⚠️ DEBUG: Overriding Target ID to ${targetId}`, 'info');
     } else {
-        // 2. USE EMPIRICAL MAPPING
-        // Based on user testing:
-        // ID 17 = Right (CW)
-        // ID 18 = Left (CCW)
-        // ID 19 = Press (Centre)
+        // 2. USE CORRECTED MAPPING (ID 17=Left, ID 18=Right)
         
         if (activeKeyIndex >= 12) {
             // It's a Knob
-            if (activeKeyIndex === 12) targetId = 17; // UI: Right -> ID 17
-            if (activeKeyIndex === 13) targetId = 18; // UI: Left  -> ID 18
-            if (activeKeyIndex === 14) targetId = 19; // UI: Press -> ID 19
+            if (activeKeyIndex === 12) targetId = 18; // UI: Right (CW) -> Device ID 18
+            if (activeKeyIndex === 13) targetId = 17; // UI: Left (CCW) -> Device ID 17
+            if (activeKeyIndex === 14) targetId = 19; // UI: Press -> Device ID 19
             
             logToConsole(`Mapping UI Knob Idx ${activeKeyIndex} -> Device ID ${targetId}`, 'info');
         } else {
