@@ -1,11 +1,11 @@
-/* main.js - Final Corrected Mapping V3 (16-17-18 Sequence) */
+/* main.js - Final Solved Mapping (15-16-17) */
 import { SCAN_CODES } from './utils.js';
 
 let device;
 let activeKeyIndex = null;
 let keyMetadata = JSON.parse(localStorage.getItem('keypad_metadata')) || {};
 
-// 1. Initialize Dropdown with All Codes (Media, Layers, Keys)
+// 1. Initialize Dropdown with All Codes
 const fSelector = document.getElementById('fkey-selector');
 fSelector.innerHTML = ''; 
 Object.entries(SCAN_CODES).forEach(([keyName, byte]) => {
@@ -42,7 +42,6 @@ async function runDiagnostics() {
         
         logToConsole(`Coll #${i}: ${type}`, "info");
         
-        // check if this collection supports Output Reports (Write)
         if (c.outputReports && c.outputReports.length > 0) {
             writableFound = true;
             logToConsole(`   > Writable Output Detected!`, 'tx');
@@ -53,23 +52,18 @@ async function runDiagnostics() {
 
     if (!writableFound) {
         logToConsole("⚠️ READ-ONLY MODE DETECTED", "err");
-        logToConsole("   Action: Unplug, Replug, and select the OTHER interface.", "err");
-        alert("Read-Only Mode! You selected the 'Keyboard' interface. Disconnect and try the other 'Mini Keyboard' option.");
+        alert("Read-Only Mode! Reconnect and select the other interface option.");
     } else {
         logToConsole("✅ Ready to Write.", "tx");
     }
 }
 
 // ----------------------------------------
-// CONNECT (Targeting Config Interface 0xFF00)
+// CONNECT
 // ----------------------------------------
 export async function connectDevice() {
     try {
-        // 1. Try to filter specifically for the Config Interface (Usage Page 0xFF00)
-        const filters = [
-            { vendorId: 0x1189, usagePage: 0xFF00 }
-        ];
-        
+        const filters = [{ vendorId: 0x1189, usagePage: 0xFF00 }];
         let devices;
         try {
             devices = await navigator.hid.requestDevice({ filters });
@@ -98,12 +92,11 @@ export async function connectDevice() {
 }
 
 // ----------------------------------------
-// SAVE (Mapped: Left=18, Center=17, Right=16)
+// SAVE (Solved: Left=15, Center=16, Right=17)
 // ----------------------------------------
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
     
-    // Check if we are on a writable interface
     const writable = device.collections.some(c => c.outputReports && c.outputReports.length > 0);
     if (!writable) return alert("Read-Only Interface! Reconnect and choose the other device option.");
 
@@ -113,25 +106,25 @@ export async function saveActiveBinding() {
     // --- TARGET ID LOGIC ---
     let targetId;
     
-// 1. CHECK DEBUG OVERRIDE
+    // 1. CHECK DEBUG OVERRIDE
     const debugIdInput = document.getElementById('debug-target-id');
     if (debugIdInput && debugIdInput.value) {
         targetId = parseInt(debugIdInput.value);
         logToConsole(`⚠️ DEBUG: Overriding Target ID to ${targetId}`, 'info');
     } else {
-        // 2. USE EMPIRICAL MAPPING V4
-        // Confirmed: Left=16, Center=18. 
-        // Failed: 17 (Right didn't update).
-        // Hypothesis: Right is 15.
+        // 2. USE FINAL SOLVED MAPPING
+        // Based on user logs:
+        // ID 15 written with F24 -> Result: Left Knob is F24. (Left = 15)
+        // ID 16 written with F23 -> Result: Center Knob is F23. (Center = 16)
+        // ID 17 (Previous) -> Result: Right Knob is F24. (Right = 17)
         
         if (activeKeyIndex >= 12) {
             // It's a Knob
-            if (activeKeyIndex === 12) targetId = 15; // UI: Right (CW) -> Trying 15!
-            if (activeKeyIndex === 13) targetId = 16; // UI: Left (CCW) -> Confirmed 16
-            if (activeKeyIndex === 14) targetId = 18; // UI: Press -> Confirmed 18
+            if (activeKeyIndex === 12) targetId = 17; // UI: Right (CW) -> Device ID 17
+            if (activeKeyIndex === 13) targetId = 15; // UI: Left (CCW) -> Device ID 15
+            if (activeKeyIndex === 14) targetId = 16; // UI: Press -> Device ID 16
             
             logToConsole(`Mapping UI Knob Idx ${activeKeyIndex} -> Device ID ${targetId}`, 'info');
-            if(activeKeyIndex === 12) logToConsole(`❓ Testing ID 15 for Right Knob. If this fails, try 19 or 14 in the Debug Box below!`, 'info');
         } else {
             // It's a Key (0-5) -> ID (1-6)
             targetId = activeKeyIndex + 1;
@@ -139,9 +132,7 @@ export async function saveActiveBinding() {
     }
 
     // --- PACKET CONSTRUCTION ---
-    // Structure: [KeyIndex, 0x11, 0x01, 0x01, Modifiers, KeyCode, ...Padding]
     const packet = new Uint8Array(64).fill(0);
-    
     packet[0] = targetId; 
     packet[1] = 0x11;         // Command: Write
     packet[2] = 0x01;         // Fixed
@@ -152,22 +143,18 @@ export async function saveActiveBinding() {
     logToConsole(`1. Setting Key ID:${targetId} to [0x${selectedByte.toString(16).toUpperCase()}]...`, 'info');
 
     try {
-        // Send Assignment
         await device.sendReport(reportId, packet);
-        
-        // --- SAVE TO EEPROM ---
-        await new Promise(r => setTimeout(r, 100)); // Short delay
+        await new Promise(r => setTimeout(r, 100));
         
         const savePacket = new Uint8Array(64).fill(0);
-        savePacket[0] = 0xAA; // Magic Byte 1
-        savePacket[1] = 0xAA; // Magic Byte 2
+        savePacket[0] = 0xAA; 
+        savePacket[1] = 0xAA; 
         
         logToConsole(`2. Persisting (0xAA)...`, 'info');
         await device.sendReport(reportId, savePacket);
         
         logToConsole(`✅ Packet Sent Successfully`, 'tx');
         
-        // Only update persistent UI storage if we are NOT debugging a manual ID
         if (!debugIdInput.value) {
             keyMetadata[activeKeyIndex] = selectedByte;
             localStorage.setItem('keypad_metadata', JSON.stringify(keyMetadata));
@@ -182,26 +169,20 @@ export async function saveActiveBinding() {
 // UI HELPERS
 export function handleKeySelection(idx) {
     activeKeyIndex = idx; 
-    
-    // Visual Selection Logic
     document.querySelectorAll('.key').forEach(k => k.classList.remove('active'));
     const el = document.getElementById(`v-${idx}`);
     if(el) el.classList.add('active');
     
     document.getElementById('editor-container').classList.remove('hidden');
     
-    // Dynamic Label
     let label = `Editing Key ${idx + 1}`;
     if (idx === 12) label = "Editing Knob Right (CW)";
     if (idx === 13) label = "Editing Knob Left (CCW)";
     if (idx === 14) label = "Editing Knob Press";
     
     document.getElementById('editingLabel').innerText = label;
-    
-    // Pre-select current value or default to 'a'
     fSelector.value = keyMetadata[idx] || 0x04;
     
-    // Clear the debug override when changing keys to prevent accidents
     const debugInput = document.getElementById('debug-target-id');
     if(debugInput) debugInput.value = '';
 }
@@ -245,7 +226,6 @@ function refreshSummary() {
 // INIT
 document.getElementById('connectBtn').onclick = connectDevice;
 document.getElementById('save-binding-btn').onclick = saveActiveBinding;
-// Wire up the new "Resend Binding" button in the debug panel
 document.getElementById('send-test-btn').onclick = saveActiveBinding;
 
 document.querySelectorAll('.key').forEach(k => {
@@ -255,7 +235,6 @@ document.querySelectorAll('.key').forEach(k => {
 document.getElementById('clearLogBtn').onclick = () => document.getElementById('console-log').innerHTML = '';
 document.getElementById('diagnoseBtn').onclick = runDiagnostics;
 
-// Optional Test Zone
 const testZone = document.getElementById('key-test-zone');
 if(testZone) testZone.addEventListener('keydown', (e) => {
     e.preventDefault();
@@ -268,4 +247,3 @@ if(testZone) testZone.addEventListener('keydown', (e) => {
 });
 
 window.onload = refreshSummary;
-
