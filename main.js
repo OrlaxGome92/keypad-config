@@ -118,55 +118,69 @@ export async function connectDevice() {
 }
 
 // ----------------------------------------
-// SAVE (FIXED: WIRED TO DEBUG DASHBOARD)
+// SAVE (FIXED: DYNAMIC LENGTH & CHECKSUM)
 // ----------------------------------------
 export async function saveActiveBinding() {
     if (!device) return alert("Connect Keypad first!");
     
+    // 1. Get Key Data
     const selectedByte = parseInt(fSelector.value);
-    
-    // Read Settings from Dashboard (FIXED: Now reads all manual inputs)
+
+    // 2. Read Protocol Settings from Dashboard
     const useType = document.getElementById('force-report-type').value;
     const useId = parseInt(document.getElementById('force-report-id').value);
     const useLen = parseInt(document.getElementById('force-length').value) || 64; 
     
     // Read Command Byte & Checksum Mode
-    const cmdInput = document.getElementById('force-cmd').value; // e.g. "0xA1" or "161"
-    const cmdByte = parseInt(cmdInput); 
+    // Default to 0xA1 (161) if input is empty or invalid for this device type
+    const cmdInput = document.getElementById('force-cmd').value; 
+    const cmdByte = parseInt(cmdInput) || 0xA1; 
     const checksumMode = document.getElementById('force-checksum').value;
 
     // --- PACKET CONSTRUCTION ---
-    const data = new Uint8Array(useLen).fill(0);
+    // Structure: [Cmd, KeyIndex, Length, Data0, Data1, ..., Checksum]
     
-    data[0] = cmdByte;            // Byte 0: Command from UI
+    const packetSize = useLen;
+    const data = new Uint8Array(packetSize).fill(0);
+    
+    // Defined Payload: Modifiers + KeyCode (2 Bytes)
+    const payload = [0x00, selectedByte]; 
+    const dataLen = payload.length;
+
+    data[0] = cmdByte;            // Byte 0: Command
     data[1] = activeKeyIndex + 1; // Byte 1: Key Index
-    data[2] = 0x01;               // Byte 2: Type
-    data[3] = 0x00;               // Byte 3: Modifiers 
-    data[4] = selectedByte;       // Byte 4: Key Code
-    data[5] = 0x00;               // Byte 5: Pad
-    data[6] = 0x00;               // Byte 6: Pad
+    data[2] = dataLen;            // Byte 2: DATA LENGTH (Crucial Fix)
+    
+    // Write Payload starting at Byte 3
+    for (let i = 0; i < dataLen; i++) {
+        data[3 + i] = payload[i];
+    }
 
     // --- CHECKSUM CALCULATION ---
+    // Sum from Byte 0 up to (2 + dataLen)
+    // Example: If Len=2, Checksum is at Index 3+2 = 5. We sum 0,1,2,3,4.
+    
+    let checksumIndex = 3 + dataLen; 
     let sum = 0;
     
-    // If 'id_sum' mode, add Report ID to the total
+    // If 'id_sum' mode, include Report ID in calculation
     if (checksumMode === 'id_sum') {
         sum += useId;
     }
 
-    // Sum the payload bytes
-    for(let i = 0; i < 7; i++) {
+    // Sum the valid bytes
+    for(let i = 0; i < checksumIndex; i++) {
         sum += data[i];
     }
     
-    // Apply based on mode
+    // Apply Checksum
     if (checksumMode === 'none') {
-        data[7] = 0x00;
+        data[checksumIndex] = 0x00;
     } else {
-        data[7] = sum & 0xFF;
+        data[checksumIndex] = sum & 0xFF;
     }
     
-    logToConsole(`Sending [${data.slice(0,8).join(',')}...] (Mode: ${checksumMode}) to ID:${useId}`, 'info');
+    logToConsole(`Sending [${data.slice(0, checksumIndex + 1).join(',')}] (Len:${dataLen} CkIdx:${checksumIndex})`, 'info');
 
     try {
         const sendPromise = (useType === 'feature') 
