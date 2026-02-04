@@ -120,9 +120,9 @@ export async function saveActiveBinding() {
         
         if (activeKeyIndex >= 12) {
             // It's a Knob
-            if (activeKeyIndex === 12) targetId = 17; // UI: Right (CW) -> Device ID 17
-            if (activeKeyIndex === 13) targetId = 15; // UI: Left (CCW) -> Device ID 15
-            if (activeKeyIndex === 14) targetId = 16; // UI: Press -> Device ID 16
+            if (activeKeyIndex === 12) targetId = 15; // UI: Right (CW)
+            if (activeKeyIndex === 13) targetId = 17; // UI: Left (CCW)
+            if (activeKeyIndex === 14) targetId = 16; // UI: Press
             
             logToConsole(`Mapping UI Knob Idx ${activeKeyIndex} -> Device ID ${targetId}`, 'info');
         } else {
@@ -247,3 +247,4 @@ if(testZone) testZone.addEventListener('keydown', (e) => {
 });
 
 window.onload = refreshSummary;
+
